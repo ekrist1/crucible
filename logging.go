@@ -174,51 +174,28 @@ func (m model) readLogFile() ([]string, error) {
 	return lines, nil
 }
 
-// showInstallationLogs displays the installation logs in the TUI
+// showInstallationLogs displays the installation logs in the TUI with scrolling
 func (m model) showInstallationLogs() (tea.Model, tea.Cmd) {
-	// Clear screen before showing logs
-	clearScreen()
-	m.state = stateProcessing
-	m.processingMsg = "Loading installation logs..."
-	m.report = []string{}
-
 	logLines, err := m.readLogFile()
 	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Error reading log file: %v", err)))
+		// If there's an error, show it in processing state
+		m.state = stateProcessing
 		m.processingMsg = ""
+		m.report = []string{warnStyle.Render(fmt.Sprintf("❌ Error reading log file: %v", err))}
 		return m, nil
 	}
 
-	m.report = append(m.report, infoStyle.Render("=== INSTALLATION LOGS ==="))
-	m.report = append(m.report, "")
+	// Switch to log viewer state
+	m.state = stateLogViewer
+	m.logLines = logLines
+	m.logScroll = 0
 
-	// Show last 50 lines or all lines if fewer
-	startIdx := 0
-	if len(logLines) > 50 {
-		startIdx = len(logLines) - 50
-		m.report = append(m.report, warnStyle.Render("(Showing last 50 lines)"))
-		m.report = append(m.report, "")
+	// Start at bottom if there are many lines
+	logViewHeight := 18
+	if len(m.logLines) > logViewHeight {
+		m.logScroll = len(m.logLines) - logViewHeight
 	}
 
-	for i := startIdx; i < len(logLines); i++ {
-		line := logLines[i]
-		// Style different types of log lines
-		if strings.Contains(line, "COMMAND:") {
-			m.report = append(m.report, infoStyle.Render(line))
-		} else if strings.Contains(line, "ERROR:") || strings.Contains(line, "EXIT CODE:") {
-			m.report = append(m.report, warnStyle.Render(line))
-		} else if strings.Contains(line, "STATUS: SUCCESS") {
-			m.report = append(m.report, infoStyle.Render(line))
-		} else {
-			m.report = append(m.report, line)
-		}
-	}
-
-	m.report = append(m.report, "")
-	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Log file location: %s", filepath.Join(logDir, logFile))))
-	m.report = append(m.report, infoStyle.Render("=== END OF LOGS ==="))
-
-	m.processingMsg = ""
 	return m, nil
 }
 

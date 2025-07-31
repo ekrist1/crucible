@@ -12,8 +12,6 @@ import (
 // MySQL backup is now handled by forms.go
 
 func (m model) showSystemStatus() (tea.Model, tea.Cmd) {
-	// Clear screen before showing system status
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Checking system status..."
 	m.report = []string{}
@@ -124,8 +122,6 @@ func (m model) getSystemServiceStatus(name, service string) string {
 }
 
 func (m model) upgradeToPHP85() (tea.Model, tea.Cmd) {
-	// Clear screen before starting upgrade
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Upgrading to PHP 8.5..."
 	m.report = []string{infoStyle.Render("Upgrading to PHP 8.5")}

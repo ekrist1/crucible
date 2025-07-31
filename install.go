@@ -11,8 +11,6 @@ import (
 )
 
 func (m model) installPHP() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing PHP 8.4..."
 	m.report = []string{infoStyle.Render("Starting PHP 8.4 installation")}
@@ -57,8 +55,6 @@ sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring
 }
 
 func (m model) installComposer() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing PHP Composer..."
 	m.report = []string{infoStyle.Render("Installing PHP Composer")}
@@ -93,8 +89,6 @@ sudo chmod +x /usr/local/bin/composer`
 // - Essential development packages (dev, distutils)
 // - Verification tests for functionality
 func (m model) installPython() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Python 3.13, pip, and virtual environment tools..."
 	m.report = []string{infoStyle.Render("Starting Python 3.13 installation with pip and venv")}
@@ -166,8 +160,6 @@ python3.13 -m pip install --upgrade pip setuptools wheel virtualenv`
 }
 
 func (m model) installMySQL() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing MySQL..."
 	m.report = []string{infoStyle.Render("Installing MySQL with best practices")}
@@ -259,8 +251,6 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 }
 
 func (m model) installCaddy() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Caddy server..."
 	m.report = []string{infoStyle.Render("Installing Caddy server")}
@@ -308,8 +298,6 @@ sudo dnf install -y caddy`
 }
 
 func (m model) installGit() (tea.Model, tea.Cmd) {
-	// Clear screen before starting installation
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Git CLI..."
 	m.report = []string{infoStyle.Render("Installing Git CLI")}

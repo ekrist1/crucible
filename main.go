@@ -18,6 +18,7 @@ const (
 	stateMenu appState = iota
 	stateInput
 	stateProcessing
+	stateLogViewer
 )
 
 type model struct {
@@ -35,6 +36,9 @@ type model struct {
 	spinner       spinner.Model   // Spinner for long-running tasks
 	processingMsg string          // Message to display during processing
 	report        []string        // System status report lines
+	// Log viewer state
+	logLines  []string // All log lines
+	logScroll int      // Current scroll position
 }
 
 var (
@@ -126,6 +130,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateInput(msg)
 	case stateProcessing:
 		return m.updateProcessing(msg)
+	case stateLogViewer:
+		return m.updateLogViewer(msg)
 	}
 	return m, nil
 }
@@ -230,18 +236,25 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 
 	switch m.cursor {
 	case 0: // Install PHP 8.4
+		clearScreen()
 		return m.installPHP()
 	case 1: // Upgrade to PHP 8.5
+		clearScreen()
 		return m.upgradeToPHP85()
 	case 2: // Install PHP Composer
+		clearScreen()
 		return m.installComposer()
 	case 3: // Install Python & pip
+		clearScreen()
 		return m.installPython()
 	case 4: // Install MySQL
+		clearScreen()
 		return m.installMySQL()
 	case 5: // Install Caddy Server
+		clearScreen()
 		return m.installCaddy()
 	case 6: // Install Git CLI
+		clearScreen()
 		return m.installGit()
 	case 7: // Create New Laravel Site
 		return m.startInput("Enter site name (e.g., myapp):", "siteName", 7)
@@ -250,8 +263,10 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 	case 9: // Backup MySQL Database
 		return m.startInput("Enter database name:", "dbName", 9)
 	case 10: // System Status
+		clearScreen()
 		return m.showSystemStatus()
 	case 11: // View Installation Logs
+		clearScreen()
 		return m.showInstallationLogs()
 	}
 
@@ -358,6 +373,8 @@ func (m model) View() string {
 		return m.viewInput()
 	case stateProcessing:
 		return m.viewProcessing()
+	case stateLogViewer:
+		return m.viewLogViewer()
 	}
 	return ""
 }
@@ -422,6 +439,115 @@ func (m model) viewProcessing() string {
 		s += "Processing completed!\n"
 		s += "Press any key to return to main menu.\n"
 	}
+	return s
+}
+
+func (m model) updateLogViewer(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			// Return to main menu
+			clearScreen()
+			m.state = stateMenu
+			m.cursor = 0
+			m.logLines = []string{}
+			m.logScroll = 0
+			return m, nil
+		case "up", "k":
+			// Scroll up
+			if m.logScroll > 0 {
+				m.logScroll--
+			}
+		case "down", "j":
+			// Scroll down
+			logViewHeight := 18
+			maxScroll := len(m.logLines) - logViewHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if m.logScroll < maxScroll {
+				m.logScroll++
+			}
+		case "home", "g":
+			// Go to top
+			m.logScroll = 0
+		case "end", "G":
+			// Go to bottom
+			logViewHeight := 18
+			maxScroll := len(m.logLines) - logViewHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.logScroll = maxScroll
+		case "pageup":
+			// Page up
+			logViewHeight := 18
+			m.logScroll -= logViewHeight
+			if m.logScroll < 0 {
+				m.logScroll = 0
+			}
+		case "pagedown":
+			// Page down
+			logViewHeight := 18
+			maxScroll := len(m.logLines) - logViewHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.logScroll += logViewHeight
+			if m.logScroll > maxScroll {
+				m.logScroll = maxScroll
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m model) viewLogViewer() string {
+	s := titleStyle.Render("🔧 Crucible - Installation Logs") + "\n\n"
+
+	// Calculate view height (assuming terminal height of about 24 lines, minus header and footer)
+	logViewHeight := 18
+
+	if len(m.logLines) == 0 {
+		s += "No log lines to display.\n\n"
+	} else {
+		// Calculate visible range
+		startIdx := m.logScroll
+		endIdx := startIdx + logViewHeight
+
+		if endIdx > len(m.logLines) {
+			endIdx = len(m.logLines)
+		}
+
+		// Show log lines with line numbers
+		for i := startIdx; i < endIdx; i++ {
+			line := m.logLines[i]
+			lineNum := fmt.Sprintf("%4d: ", i+1)
+
+			// Style different types of log lines
+			if strings.Contains(line, "COMMAND:") {
+				s += infoStyle.Render(lineNum) + infoStyle.Render(line) + "\n"
+			} else if strings.Contains(line, "ERROR:") || strings.Contains(line, "EXIT CODE:") {
+				s += warnStyle.Render(lineNum) + warnStyle.Render(line) + "\n"
+			} else if strings.Contains(line, "STATUS: SUCCESS") {
+				s += infoStyle.Render(lineNum) + infoStyle.Render(line) + "\n"
+			} else {
+				s += choiceStyle.Render(lineNum) + line + "\n"
+			}
+		}
+
+		s += "\n"
+
+		// Show scroll position info
+		totalLines := len(m.logLines)
+		visibleStart := m.logScroll + 1
+		visibleEnd := m.logScroll + (endIdx - startIdx)
+
+		s += choiceStyle.Render(fmt.Sprintf("Lines %d-%d of %d", visibleStart, visibleEnd, totalLines)) + "\n"
+	}
+
+	s += "\nNavigation: ↑/↓ scroll, Home/End jump, PgUp/PgDn page, q/Esc to exit\n"
 	return s
 }
 

@@ -21,7 +21,7 @@ func (m model) handleLaravelSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["siteName"] = m.inputValue
-		return m.startInput("Enter domain (e.g., myapp.local):", "domain", 6)
+		return m.startInput("Enter domain (e.g., myapp.local):", "domain", 7)
 
 	case "domain":
 		if m.inputValue == "" {
@@ -30,7 +30,7 @@ func (m model) handleLaravelSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["domain"] = m.inputValue
-		return m.startInput("Enter Git repository URL (https://github.com/user/repo.git or git@github.com:user/repo.git, optional):", "gitRepo", 6)
+		return m.startInput("Enter Git repository URL (https://github.com/user/repo.git or git@github.com:user/repo.git, optional):", "gitRepo", 7)
 
 	case "gitRepo":
 		// Validate GitHub URL if provided
@@ -40,6 +40,7 @@ func (m model) handleLaravelSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["gitRepo"] = m.inputValue
+		clearScreen()
 		return m.createLaravelSiteWithData()
 	}
 
@@ -56,6 +57,7 @@ func (m model) handleUpdateSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["siteIndex"] = m.inputValue
+		clearScreen()
 		return m.updateLaravelSiteWithData()
 	}
 
@@ -104,6 +106,7 @@ func (m model) handleBackupForm() (tea.Model, tea.Cmd) {
 			m.inputValue = "~/backups/"
 		}
 		m.formData["remotePath"] = m.inputValue
+		clearScreen()
 		return m.backupMySQLWithData()
 	}
 
@@ -112,8 +115,6 @@ func (m model) handleBackupForm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
-	// Clear screen before creating Laravel site
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Creating new Laravel site..."
 	m.report = []string{infoStyle.Render("Creating new Laravel site")}
@@ -194,8 +195,6 @@ func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
-	// Clear screen before updating Laravel site
-	clearScreen()
 	m.state = stateProcessing
 	m.report = []string{infoStyle.Render("Updating Laravel site")}
 
@@ -288,8 +287,6 @@ func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
 }
 
 func (m model) backupMySQLWithData() (tea.Model, tea.Cmd) {
-	// Clear screen before starting MySQL backup
-	clearScreen()
 	m.state = stateProcessing
 	m.report = []string{infoStyle.Render("Starting MySQL backup")}
 
