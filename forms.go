@@ -115,83 +115,61 @@ func (m model) handleBackupForm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
-	m.state = stateProcessing
-	m.processingMsg = "Creating new Laravel site..."
-	m.report = []string{infoStyle.Render("Creating new Laravel site")}
-
 	siteName := m.formData["siteName"]
 	domain := m.formData["domain"]
 	gitRepo := m.formData["gitRepo"]
-
-	// Create /var/www if it doesn't exist
-	if err := os.MkdirAll("/var/www", 0755); err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to create /var/www directory: %v", err)))
-		return m, nil
-	}
-
 	sitePath := filepath.Join("/var/www", siteName)
 
-	// Create Laravel site
+	var commands []string
+	var descriptions []string
+
+	// 1. Create /var/www directory
+	commands = append(commands, fmt.Sprintf("sudo mkdir -p %s", "/var/www"))
+	descriptions = append(descriptions, "Creating base directory...")
+
+	// 2. Create Laravel site (clone or new)
 	if gitRepo != "" {
-		// Clone from Git
-		m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Cloning Laravel app from Git: %s to %s", gitRepo, sitePath)))
-		cmd := exec.Command("git", "clone", gitRepo, sitePath)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to clone repository: %v\nOutput: %s", err, string(output))))
-			return m, nil
-		}
+		commands = append(commands, fmt.Sprintf("git clone %s %s", gitRepo, sitePath))
+		descriptions = append(descriptions, fmt.Sprintf("Cloning Laravel app from %s...", gitRepo))
 	} else {
-		// Create fresh Laravel installation
-		m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Creating fresh Laravel installation at %s", sitePath)))
-		cmd := exec.Command("composer", "create-project", "laravel/laravel", sitePath)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to create Laravel project: %v\nOutput: %s", err, string(output))))
-			return m, nil
-		}
+		commands = append(commands, fmt.Sprintf("composer create-project laravel/laravel %s", sitePath))
+		descriptions = append(descriptions, fmt.Sprintf("Creating fresh Laravel installation at %s...", sitePath))
 	}
 
-	// Set proper permissions
-	m.setLaravelPermissions(sitePath)
+	// 3. Set ownership and permissions
+	commands = append(commands, fmt.Sprintf("sudo chown -R www-data:www-data %s", sitePath))
+	descriptions = append(descriptions, "Setting ownership...")
+	commands = append(commands, fmt.Sprintf("find %s -type d -exec chmod 755 {} + && find %s -type f -exec chmod 644 {} +", sitePath, sitePath))
+	descriptions = append(descriptions, "Setting file permissions...")
+	commands = append(commands, fmt.Sprintf("chmod -R 775 %s/storage %s/bootstrap/cache", sitePath, sitePath))
+	descriptions = append(descriptions, "Setting writable permissions for storage and cache...")
 
-	// Install dependencies if composer.json exists
-	if _, err := os.Stat(filepath.Join(sitePath, "composer.json")); err == nil {
-		m.report = append(m.report, infoStyle.Render("Installing Composer dependencies"))
-		cmd := exec.Command("composer", "install", "--no-dev", "--optimize-autoloader")
-		cmd.Dir = sitePath
-		if output, err := cmd.CombinedOutput(); err != nil {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Composer dependencies: %v\nOutput: %s", err, string(output))))
-		}
-	}
+	// 4. Install Composer dependencies
+	commands = append(commands, fmt.Sprintf("cd %s && composer install --no-dev --optimize-autoloader", sitePath))
+	descriptions = append(descriptions, "Installing Composer dependencies...")
 
-	// Generate app key if .env.example exists
-	if _, err := os.Stat(filepath.Join(sitePath, ".env.example")); err == nil {
-		m.report = append(m.report, infoStyle.Render("Setting up Laravel environment"))
+	// 5. Set up .env and generate app key
+	commands = append(commands, fmt.Sprintf("cd %s && cp .env.example .env && php artisan key:generate", sitePath))
+	descriptions = append(descriptions, "Generating app key...")
 
-		// Copy .env.example to .env
-		cmd := exec.Command("cp", ".env.example", ".env")
-		cmd.Dir = sitePath
-		cmd.Run()
+	// 6. Create Caddy site configuration
+	caddyConfig := fmt.Sprintf(`%s {
+    import laravel-app %s
+}`, domain, sitePath)
+	caddyConfigPath := fmt.Sprintf("/etc/caddy/sites/%s.caddy", domain)
+	// Use a 'heredoc' to safely write the multi-line config to a file
+	writeConfigCmd := fmt.Sprintf("sudo mkdir -p /etc/caddy/sites && echo '%s' | sudo tee %s > /dev/null", caddyConfig, caddyConfigPath)
+	commands = append(commands, writeConfigCmd)
+	descriptions = append(descriptions, "Creating Caddy site configuration...")
 
-		// Generate app key
-		cmd = exec.Command("php", "artisan", "key:generate")
-		cmd.Dir = sitePath
-		if output, err := cmd.CombinedOutput(); err != nil {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to generate app key: %v\nOutput: %s", err, string(output))))
-		}
-	}
+	// 7. Reload Caddy
+	commands = append(commands, "sudo systemctl reload caddy")
+	descriptions = append(descriptions, "Reloading Caddy server...")
 
-	// Create Caddy site configuration
-	m.createCaddySiteConfig(domain, sitePath)
-
-	// Reload Caddy
-	cmd := exec.Command("sudo", "systemctl", "reload", "caddy")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("⚠ Failed to reload Caddy: %v\nOutput: %s", err, string(output))))
-	}
-
-	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Laravel site created successfully: %s (domain: %s, path: %s)", siteName, domain, sitePath)))
-	m.processingMsg = ""
-	return m, nil
+	// Start the first command asynchronously
+	newModel, cmd := m.startProcessingWithMessage(descriptions[0])
+	asyncCmd := executeCommandAsync(commands[0], descriptions[0], "") // No specific service to refresh
+	return newModel, tea.Batch(cmd, asyncCmd)
 }
 
 func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
