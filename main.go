@@ -81,6 +81,7 @@ func initialModel() model {
 			"Install PHP 8.4",
 			"Upgrade to PHP 8.5",
 			"Install PHP Composer",
+			"Install Python & pip",
 			"Install MySQL",
 			"Install Caddy Server",
 			"Install Git CLI",
@@ -88,6 +89,7 @@ func initialModel() model {
 			"Update Laravel Site",
 			"Backup MySQL Database",
 			"System Status",
+			"View Installation Logs",
 			"Exit",
 		},
 		selected:      make(map[int]struct{}),
@@ -102,6 +104,12 @@ func initialModel() model {
 
 	// Check initial service installation status
 	m.checkServiceInstallations()
+
+	// Initialize logging
+	modelPtr := &m
+	if err := modelPtr.initializeLogging(); err != nil {
+		logger.Error("Failed to initialize logging", "error", err)
+	}
 
 	return m
 }
@@ -223,20 +231,24 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 		return m.upgradeToPHP85()
 	case 2: // Install PHP Composer
 		return m.installComposer()
-	case 3: // Install MySQL
+	case 3: // Install Python & pip
+		return m.installPython()
+	case 4: // Install MySQL
 		return m.installMySQL()
-	case 4: // Install Caddy Server
+	case 5: // Install Caddy Server
 		return m.installCaddy()
-	case 5: // Install Git CLI
+	case 6: // Install Git CLI
 		return m.installGit()
-	case 6: // Create New Laravel Site
-		return m.startInput("Enter site name (e.g., myapp):", "siteName", 6)
-	case 7: // Update Laravel Site
-		return m.startInput("Select site number:", "siteIndex", 7)
-	case 8: // Backup MySQL Database
-		return m.startInput("Enter database name:", "dbName", 8)
-	case 9: // System Status
+	case 7: // Create New Laravel Site
+		return m.startInput("Enter site name (e.g., myapp):", "siteName", 7)
+	case 8: // Update Laravel Site
+		return m.startInput("Select site number:", "siteIndex", 8)
+	case 9: // Backup MySQL Database
+		return m.startInput("Enter database name:", "dbName", 9)
+	case 10: // System Status
 		return m.showSystemStatus()
+	case 11: // View Installation Logs
+		return m.showInstallationLogs()
 	}
 
 	return m, nil
@@ -245,11 +257,11 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 func (m model) processFormInput() (tea.Model, tea.Cmd) {
 	// This function handles the form input flow for different actions
 	switch m.currentAction {
-	case 6: // Create New Laravel Site
+	case 7: // Create New Laravel Site
 		return m.handleLaravelSiteForm()
-	case 7: // Update Laravel Site
+	case 8: // Update Laravel Site
 		return m.handleUpdateSiteForm()
-	case 8: // Backup MySQL Database
+	case 9: // Backup MySQL Database
 		return m.handleBackupForm()
 	}
 
@@ -282,6 +294,9 @@ func (m *model) checkServiceInstallations() {
 	// Check Composer installation
 	m.serviceStatus["composer"] = m.isServiceInstalled("composer", "--version")
 
+	// Check Python installation
+	m.serviceStatus["python"] = m.isServiceInstalled("python3", "--version")
+
 	// Check MySQL installation
 	m.serviceStatus["mysql"] = m.isServiceInstalled("mysql", "--version")
 
@@ -304,6 +319,8 @@ func (m *model) refreshServiceStatus(serviceName string) {
 		m.serviceStatus["php"] = m.isServiceInstalled("php", "--version")
 	case "composer":
 		m.serviceStatus["composer"] = m.isServiceInstalled("composer", "--version")
+	case "python":
+		m.serviceStatus["python"] = m.isServiceInstalled("python3", "--version")
 	case "mysql":
 		m.serviceStatus["mysql"] = m.isServiceInstalled("mysql", "--version")
 	case "caddy":
@@ -347,11 +364,13 @@ func (m model) viewMenu() string {
 			serviceIcon = m.getServiceIcon("php") + " "
 		case 2: // Install PHP Composer
 			serviceIcon = m.getServiceIcon("composer") + " "
-		case 3: // Install MySQL
+		case 3: // Install Python & pip
+			serviceIcon = m.getServiceIcon("python") + " "
+		case 4: // Install MySQL
 			serviceIcon = m.getServiceIcon("mysql") + " "
-		case 4: // Install Caddy Server
+		case 5: // Install Caddy Server
 			serviceIcon = m.getServiceIcon("caddy") + " "
-		case 5: // Install Git CLI
+		case 6: // Install Git CLI
 			serviceIcon = m.getServiceIcon("git") + " "
 		}
 

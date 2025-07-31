@@ -22,6 +22,8 @@ func (m model) showSystemStatus() (tea.Model, tea.Cmd) {
 	m.report = append(m.report, infoStyle.Render("📦 INSTALLED SERVICES:"))
 	m.report = append(m.report, m.getServiceStatus("PHP", "php", "--version"))
 	m.report = append(m.report, m.getServiceStatus("Composer", "composer", "--version"))
+	m.report = append(m.report, m.getServiceStatus("Python", "python3", "--version"))
+	m.report = append(m.report, m.getServiceStatus("pip", "pip3", "--version"))
 	m.report = append(m.report, m.getServiceStatus("MySQL", "mysql", "--version"))
 	m.report = append(m.report, m.getServiceStatus("Caddy", "caddy", "version"))
 	m.report = append(m.report, m.getServiceStatus("Git", "git", "--version"))
@@ -82,6 +84,16 @@ func (m model) getServiceStatus(name, command string, args ...string) string {
 		if len(fields) >= 3 {
 			version = fields[2]
 		}
+	} else if strings.Contains(version, "Python") {
+		fields := strings.Fields(version)
+		if len(fields) >= 2 {
+			version = fields[1]
+		}
+	} else if strings.Contains(version, "pip") {
+		fields := strings.Fields(version)
+		if len(fields) >= 2 {
+			version = fields[1]
+		}
 	} else if strings.Contains(version, "mysql") {
 		fields := strings.Fields(version)
 		for i, field := range fields {
@@ -115,34 +127,36 @@ func (m model) upgradeToPHP85() (tea.Model, tea.Cmd) {
 	m.report = []string{infoStyle.Render("Upgrading to PHP 8.5")}
 
 	osType := getOSType()
-	var cmd *exec.Cmd
+	var command string
 
 	switch osType {
 	case "ubuntu":
-		cmd = exec.Command("bash", "-c", `
-			sudo apt update && \
-			sudo apt install -y php8.5 php8.5-fpm php8.5-mysql php8.5-xml php8.5-gd php8.5-curl php8.5-mbstring php8.5-zip php8.5-intl php8.5-bcmath && \
-			sudo a2dismod php8.4 && \
-			sudo a2enmod php8.5 && \
-			sudo systemctl restart apache2 && \
-			sudo update-alternatives --set php /usr/bin/php8.5
-		`)
+		command = `sudo apt update && \
+sudo apt install -y php8.5 php8.5-fpm php8.5-mysql php8.5-xml php8.5-gd php8.5-curl php8.5-mbstring php8.5-zip php8.5-intl php8.5-bcmath && \
+sudo a2dismod php8.4 && \
+sudo a2enmod php8.5 && \
+sudo systemctl restart apache2 && \
+sudo update-alternatives --set php /usr/bin/php8.5`
 	case "fedora":
-		cmd = exec.Command("bash", "-c", `
-			sudo dnf module reset php -y && \
-			sudo dnf module enable php:remi-8.5 -y && \
-			sudo dnf update -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-intl php-bcmath && \
-			sudo systemctl restart php-fpm
-		`)
+		command = `sudo dnf module reset php -y && \
+sudo dnf module enable php:remi-8.5 -y && \
+sudo dnf update -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-intl php-bcmath && \
+sudo systemctl restart php-fpm`
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system for PHP upgrade: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to upgrade to PHP 8.5: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to upgrade to PHP 8.5: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 	} else {
 		m.report = append(m.report, infoStyle.Render("✅ Successfully upgraded to PHP 8.5"))
 

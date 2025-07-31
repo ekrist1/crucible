@@ -15,34 +15,36 @@ func (m model) installPHP() (tea.Model, tea.Cmd) {
 	m.processingMsg = "Installing PHP 8.4..."
 	m.report = []string{infoStyle.Render("Starting PHP 8.4 installation")}
 
-	var cmd *exec.Cmd
+	var command string
 	osType := getOSType()
 
 	switch osType {
 	case "ubuntu":
-		cmd = exec.Command("bash", "-c", `
-            sudo apt update && \
-            sudo apt install -y software-properties-common && \
-            sudo add-apt-repository ppa:ondrej/php -y && \
-            sudo apt update && \
-            sudo apt install -y php8.4 php8.4-fpm php8.4-mysql php8.4-xml php8.4-gd php8.4-curl php8.4-mbstring php8.4-zip php8.4-intl php8.4-bcmath
-        `)
+		command = `sudo apt update && \
+sudo apt install -y software-properties-common && \
+sudo add-apt-repository ppa:ondrej/php -y && \
+sudo apt update && \
+sudo apt install -y php8.4 php8.4-fpm php8.4-mysql php8.4-xml php8.4-gd php8.4-curl php8.4-mbstring php8.4-zip php8.4-intl php8.4-bcmath`
 	case "fedora":
-		cmd = exec.Command("bash", "-c", `
-            sudo dnf install -y https://rpms.remirepo.net/fedora/remi-release-$(rpm -E %fedora).rpm && \
-            sudo dnf module reset php -y && \
-            sudo dnf module enable php:remi-8.4 -y && \
-            sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-intl php-bcmath
-        `)
+		command = `sudo dnf install -y https://rpms.remirepo.net/fedora/remi-release-$(rpm -E %fedora).rpm && \
+sudo dnf module reset php -y && \
+sudo dnf module enable php:remi-8.4 -y && \
+sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-intl php-bcmath`
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install PHP: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install PHP: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 	} else {
 		m.report = append(m.report, infoStyle.Render("✅ PHP 8.4 installed successfully"))
 		m.refreshServiceStatus("php")
@@ -57,18 +59,100 @@ func (m model) installComposer() (tea.Model, tea.Cmd) {
 	m.processingMsg = "Installing PHP Composer..."
 	m.report = []string{infoStyle.Render("Installing PHP Composer")}
 
-	cmd := exec.Command("bash", "-c", `
-        curl -sS https://getcomposer.org/installer | php && \
-        sudo mv composer.phar /usr/local/bin/composer && \
-        sudo chmod +x /usr/local/bin/composer
-    `)
+	command := `curl -sS https://getcomposer.org/installer | php && \
+sudo mv composer.phar /usr/local/bin/composer && \
+sudo chmod +x /usr/local/bin/composer`
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Composer: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Composer: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 	} else {
 		m.report = append(m.report, infoStyle.Render("✅ Composer installed successfully"))
 		m.refreshServiceStatus("composer")
+	}
+
+	m.processingMsg = ""
+	return m, nil
+}
+
+// installPython installs Python 3.13 with pip and virtual environment support
+// It includes comprehensive setup for modern Python development:
+// - Python 3.13 interpreter
+// - pip package manager with latest version
+// - venv module for virtual environments
+// - Essential development packages (dev, distutils)
+// - Verification tests for functionality
+func (m model) installPython() (tea.Model, tea.Cmd) {
+	m.state = stateProcessing
+	m.processingMsg = "Installing Python 3.13, pip, and virtual environment tools..."
+	m.report = []string{infoStyle.Render("Starting Python 3.13 installation with pip and venv")}
+
+	osType := getOSType()
+	var command string
+
+	switch osType {
+	case "ubuntu":
+		command = `sudo apt update && \
+sudo apt install -y software-properties-common && \
+sudo add-apt-repository ppa:deadsnakes/ppa -y && \
+sudo apt update && \
+sudo apt install -y python3.13 python3.13-venv python3.13-pip python3.13-dev python3.13-distutils && \
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && \
+python3.13 -m ensurepip --default-pip && \
+python3.13 -m pip install --upgrade pip setuptools wheel virtualenv`
+	case "fedora":
+		command = `sudo dnf install -y python3.13 python3.13-pip python3.13-devel python3.13-setuptools && \
+sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && \
+python3.13 -m ensurepip --default-pip && \
+python3.13 -m pip install --upgrade pip setuptools wheel virtualenv`
+	default:
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
+		m.processingMsg = ""
+		return m, nil
+	}
+
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Python: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
+	} else {
+		m.report = append(m.report, infoStyle.Render("✅ Python 3.13 installed successfully"))
+
+		// Verify installation and show version
+		verifyCmd := "python3 --version && pip3 --version"
+		verifyResult := modelPtr.executeAndLogCommand(verifyCmd)
+		if verifyResult.Error == nil {
+			m.report = append(m.report, infoStyle.Render("✅ Installation verified:"))
+			lines := strings.Split(strings.TrimSpace(verifyResult.Output), "\n")
+			for _, line := range lines {
+				if strings.TrimSpace(line) != "" {
+					m.report = append(m.report, infoStyle.Render("  "+line))
+				}
+			}
+		}
+
+		// Create a sample virtual environment to verify venv works
+		m.report = append(m.report, infoStyle.Render("✅ Testing virtual environment creation..."))
+		testVenvCmd := `cd /tmp && python3 -m venv test_env && source test_env/bin/activate && python --version && deactivate && rm -rf test_env`
+		testResult := modelPtr.executeAndLogCommand(testVenvCmd)
+		if testResult.Error == nil {
+			m.report = append(m.report, infoStyle.Render("✅ Virtual environment functionality verified"))
+		} else {
+			m.report = append(m.report, warnStyle.Render("⚠️  Virtual environment test had issues, but Python should still work"))
+		}
+
+		m.refreshServiceStatus("python")
 	}
 
 	m.processingMsg = ""
@@ -82,13 +166,12 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 
 	osType := getOSType()
 	isSystemd := isSystemdAvailable()
-	var cmd *exec.Cmd
+	var command string
 
 	switch osType {
 	case "ubuntu":
 		startCmd := getServiceStartCommand("mysql", isSystemd)
 		enableCmd := getServiceEnableCommand("mysql", isSystemd)
-		// Fixed: Build command string properly without embedded newlines in fmt.Sprintf
 		cmdParts := []string{
 			"sudo apt update",
 			"sudo apt install -y mysql-server",
@@ -103,12 +186,10 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 				validParts = append(validParts, part)
 			}
 		}
-		cmdStr := strings.Join(validParts, " && ")
-		cmd = exec.Command("bash", "-c", cmdStr)
+		command = strings.Join(validParts, " && ")
 	case "fedora":
 		startCmd := getServiceStartCommand("mysqld", isSystemd)
 		enableCmd := getServiceEnableCommand("mysqld", isSystemd)
-		// Fixed: Build command string properly without embedded newlines in fmt.Sprintf
 		cmdParts := []string{
 			"sudo dnf install -y mysql-server",
 			startCmd,
@@ -122,17 +203,22 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 				validParts = append(validParts, part)
 			}
 		}
-		cmdStr := strings.Join(validParts, " && ")
-		cmd = exec.Command("bash", "-c", cmdStr)
+		command = strings.Join(validParts, " && ")
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install MySQL: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install MySQL: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 	} else {
 		m.report = append(m.report, infoStyle.Render("✅ MySQL installed successfully"))
 		m.refreshServiceStatus("mysql")
@@ -148,32 +234,34 @@ func (m model) installCaddy() (tea.Model, tea.Cmd) {
 	m.report = []string{infoStyle.Render("Installing Caddy server")}
 
 	osType := getOSType()
-	var cmd *exec.Cmd
+	var command string
 
 	switch osType {
 	case "ubuntu":
-		cmd = exec.Command("bash", "-c", `
-            sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https && \
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg && \
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list && \
-            sudo apt update && \
-            sudo apt install -y caddy
-        `)
+		command = `sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https && \
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg && \
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list && \
+sudo apt update && \
+sudo apt install -y caddy`
 	case "fedora":
-		cmd = exec.Command("bash", "-c", `
-            sudo dnf install -y 'dnf-command(copr)' && \
-            sudo dnf copr enable @caddy/caddy -y && \
-            sudo dnf install -y caddy
-        `)
+		command = `sudo dnf install -y 'dnf-command(copr)' && \
+sudo dnf copr enable @caddy/caddy -y && \
+sudo dnf install -y caddy`
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Caddy: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Caddy: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 		m.processingMsg = ""
 		return m, nil
 	}
@@ -193,22 +281,28 @@ func (m model) installGit() (tea.Model, tea.Cmd) {
 	m.report = []string{infoStyle.Render("Installing Git CLI")}
 
 	osType := getOSType()
-	var cmd *exec.Cmd
+	var command string
 
 	switch osType {
 	case "ubuntu":
-		cmd = exec.Command("bash", "-c", "sudo apt update && sudo apt install -y git")
+		command = "sudo apt update && sudo apt install -y git"
 	case "fedora":
-		cmd = exec.Command("bash", "-c", "sudo dnf install -y git")
+		command = "sudo dnf install -y git"
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Git: %v\nOutput: %s", err, string(output))))
+	// Execute command with logging
+	modelPtr := &m
+	result := modelPtr.executeAndLogCommand(command)
+
+	if result.Error != nil {
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Git: %v", result.Error)))
+		if strings.TrimSpace(result.Output) != "" {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
+		}
 	} else {
 		m.report = append(m.report, infoStyle.Render("✅ Git installed successfully"))
 		m.refreshServiceStatus("git")
