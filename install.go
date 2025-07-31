@@ -11,6 +11,8 @@ import (
 )
 
 func (m model) installPHP() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing PHP 8.4..."
 	m.report = []string{infoStyle.Render("Starting PHP 8.4 installation")}
@@ -55,6 +57,8 @@ sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring
 }
 
 func (m model) installComposer() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing PHP Composer..."
 	m.report = []string{infoStyle.Render("Installing PHP Composer")}
@@ -89,6 +93,8 @@ sudo chmod +x /usr/local/bin/composer`
 // - Essential development packages (dev, distutils)
 // - Verification tests for functionality
 func (m model) installPython() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Python 3.13, pip, and virtual environment tools..."
 	m.report = []string{infoStyle.Render("Starting Python 3.13 installation with pip and venv")}
@@ -160,12 +166,17 @@ python3.13 -m pip install --upgrade pip setuptools wheel virtualenv`
 }
 
 func (m model) installMySQL() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing MySQL..."
 	m.report = []string{infoStyle.Render("Installing MySQL with best practices")}
 
 	osType := getOSType()
 	isSystemd := isSystemdAvailable()
+
+	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Detected OS: %s, Init system: systemd=%t", osType, isSystemd)))
+
 	var command string
 
 	switch osType {
@@ -175,40 +186,45 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 		cmdParts := []string{
 			"sudo apt update",
 			"sudo apt install -y mysql-server",
-			startCmd,
-			enableCmd,
-			"sudo mysql_secure_installation",
 		}
-		// Filter out empty commands (e.g., when enable command is empty)
-		var validParts []string
-		for _, part := range cmdParts {
-			if strings.TrimSpace(part) != "" {
-				validParts = append(validParts, part)
-			}
+
+		// Add service management commands
+		if startCmd != "" {
+			cmdParts = append(cmdParts, startCmd)
 		}
-		command = strings.Join(validParts, " && ")
+		if enableCmd != "" {
+			cmdParts = append(cmdParts, enableCmd)
+		}
+
+		// Note: mysql_secure_installation requires interactive input, so we'll skip it
+		m.report = append(m.report, warnStyle.Render("Note: mysql_secure_installation skipped (requires manual interaction)"))
+
+		command = strings.Join(cmdParts, " && ")
 	case "fedora":
 		startCmd := getServiceStartCommand("mysqld", isSystemd)
 		enableCmd := getServiceEnableCommand("mysqld", isSystemd)
 		cmdParts := []string{
 			"sudo dnf install -y mysql-server",
-			startCmd,
-			enableCmd,
-			"sudo mysql_secure_installation",
 		}
-		// Filter out empty commands (e.g., when enable command is empty)
-		var validParts []string
-		for _, part := range cmdParts {
-			if strings.TrimSpace(part) != "" {
-				validParts = append(validParts, part)
-			}
+
+		// Add service management commands (mysqld on Fedora, not mysql)
+		if startCmd != "" {
+			cmdParts = append(cmdParts, startCmd)
 		}
-		command = strings.Join(validParts, " && ")
+		if enableCmd != "" {
+			cmdParts = append(cmdParts, enableCmd)
+		}
+
+		m.report = append(m.report, warnStyle.Render("Note: mysql_secure_installation skipped (requires manual interaction)"))
+
+		command = strings.Join(cmdParts, " && ")
 	default:
 		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
 		m.processingMsg = ""
 		return m, nil
 	}
+
+	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Executing: %s", command)))
 
 	// Execute command with logging
 	modelPtr := &m
@@ -220,7 +236,21 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
 		}
 	} else {
-		m.report = append(m.report, infoStyle.Render("✅ MySQL installed successfully"))
+		m.report = append(m.report, infoStyle.Render("✅ MySQL package installed successfully"))
+
+		// Verify MySQL service status
+		statusCmd := "sudo systemctl status mysql 2>/dev/null || sudo systemctl status mysqld 2>/dev/null || echo 'Service status check failed'"
+		statusResult := modelPtr.executeAndLogCommand(statusCmd)
+		if statusResult.Error == nil && strings.Contains(statusResult.Output, "active") {
+			m.report = append(m.report, infoStyle.Render("✅ MySQL service is running"))
+		} else {
+			m.report = append(m.report, warnStyle.Render("⚠️  MySQL service status unclear - check manually"))
+		}
+
+		m.report = append(m.report, infoStyle.Render("💡 Next steps:"))
+		m.report = append(m.report, infoStyle.Render("  1. Run 'sudo mysql_secure_installation' to secure MySQL"))
+		m.report = append(m.report, infoStyle.Render("  2. Create database users as needed"))
+
 		m.refreshServiceStatus("mysql")
 	}
 
@@ -229,6 +259,8 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 }
 
 func (m model) installCaddy() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Caddy server..."
 	m.report = []string{infoStyle.Render("Installing Caddy server")}
@@ -276,6 +308,8 @@ sudo dnf install -y caddy`
 }
 
 func (m model) installGit() (tea.Model, tea.Cmd) {
+	// Clear screen before starting installation
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Installing Git CLI..."
 	m.report = []string{infoStyle.Render("Installing Git CLI")}
@@ -408,12 +442,27 @@ func getOSType() string {
 	return "unknown"
 }
 
-// isSystemdAvailable checks if systemd is the init system
+// isSystemdAvailable checks if systemd is the init system with multiple detection methods
 func isSystemdAvailable() bool {
+	// Method 1: Check if systemctl command exists and is functional
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		cmd := exec.Command("systemctl", "--version")
+		if err := cmd.Run(); err == nil {
+			return true
+		}
+	}
+
+	// Method 2: Check if /run/systemd/system directory exists (systemd is active)
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		return true
+	}
+
+	// Method 3: Check PID 1 process name (fallback)
 	cmd := exec.Command("ps", "-p", "1", "-o", "comm=")
 	output, err := cmd.Output()
 	if err != nil {
-		return false
+		// If we can't detect, assume systemd on modern systems
+		return true
 	}
 	return strings.TrimSpace(string(output)) == "systemd"
 }
@@ -421,9 +470,15 @@ func isSystemdAvailable() bool {
 // getServiceStartCommand returns the appropriate start command based on init system
 func getServiceStartCommand(service string, isSystemd bool) string {
 	if isSystemd {
+		// Try systemctl first, with fallback verification
 		return fmt.Sprintf("sudo systemctl start %s", service)
 	}
-	return fmt.Sprintf("sudo service %s start", service)
+	// Fallback to service command if available
+	if _, err := exec.LookPath("service"); err == nil {
+		return fmt.Sprintf("sudo service %s start", service)
+	}
+	// If neither is available, return systemctl anyway (most likely scenario)
+	return fmt.Sprintf("sudo systemctl start %s", service)
 }
 
 // getServiceEnableCommand returns the appropriate enable command based on init system
@@ -431,5 +486,9 @@ func getServiceEnableCommand(service string, isSystemd bool) string {
 	if isSystemd {
 		return fmt.Sprintf("sudo systemctl enable %s", service)
 	}
-	return "" // SysVinit doesn't have a direct equivalent for enable
+	// SysVinit doesn't have a direct equivalent for enable, but try chkconfig if available
+	if _, err := exec.LookPath("chkconfig"); err == nil {
+		return fmt.Sprintf("sudo chkconfig %s on", service)
+	}
+	return "" // No enable equivalent available
 }

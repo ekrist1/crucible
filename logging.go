@@ -176,6 +176,8 @@ func (m model) readLogFile() ([]string, error) {
 
 // showInstallationLogs displays the installation logs in the TUI
 func (m model) showInstallationLogs() (tea.Model, tea.Cmd) {
+	// Clear screen before showing logs
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Loading installation logs..."
 	m.report = []string{}

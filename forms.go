@@ -112,6 +112,8 @@ func (m model) handleBackupForm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
+	// Clear screen before creating Laravel site
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = "Creating new Laravel site..."
 	m.report = []string{infoStyle.Render("Creating new Laravel site")}
@@ -192,6 +194,8 @@ func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
+	// Clear screen before updating Laravel site
+	clearScreen()
 	m.state = stateProcessing
 	m.report = []string{infoStyle.Render("Updating Laravel site")}
 
@@ -284,6 +288,8 @@ func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
 }
 
 func (m model) backupMySQLWithData() (tea.Model, tea.Cmd) {
+	// Clear screen before starting MySQL backup
+	clearScreen()
 	m.state = stateProcessing
 	m.report = []string{infoStyle.Render("Starting MySQL backup")}
 

@@ -173,7 +173,8 @@ func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			// Cancel input and return to menu
+			// Clear screen and cancel input, return to menu
+			clearScreen()
 			m.state = stateMenu
 			m.inputValue = ""
 			m.inputPrompt = ""
@@ -201,6 +202,9 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "enter", " ":
+			// Clear screen before returning to main menu
+			clearScreen()
+
 			// Return to main menu after processing and refresh service status
 			m.state = stateMenu
 			m.formData = make(map[string]string)
@@ -272,6 +276,8 @@ func (m model) processFormInput() (tea.Model, tea.Cmd) {
 }
 
 func (m model) startInput(prompt, field string, action int) (tea.Model, tea.Cmd) {
+	// Clear screen before starting input
+	clearScreen()
 	m.state = stateInput
 	m.inputPrompt = prompt
 	m.inputField = field
@@ -282,6 +288,8 @@ func (m model) startInput(prompt, field string, action int) (tea.Model, tea.Cmd)
 }
 
 func (m model) startProcessingWithMessage(message string) (tea.Model, tea.Cmd) {
+	// Clear screen before starting processing
+	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = message
 	return m, m.spinner.Tick
@@ -311,6 +319,11 @@ func (m model) isServiceInstalled(command string, args ...string) bool {
 	cmd := exec.Command(command, args...)
 	err := cmd.Run()
 	return err == nil
+}
+
+// clearScreen clears the terminal screen using ANSI escape sequences
+func clearScreen() {
+	fmt.Print("\033[2J\033[H")
 }
 
 func (m *model) refreshServiceStatus(serviceName string) {
@@ -413,6 +426,9 @@ func (m model) viewProcessing() string {
 }
 
 func main() {
+	// Clear screen on startup
+	clearScreen()
+
 	p := tea.NewProgram(initialModel())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v", err)
