@@ -108,14 +108,16 @@ func initialModel() model {
 	m := model{
 		choices: []string{
 			"Install PHP 8.4",
-			"Upgrade to PHP 8.5",
+			"Upgrade to PHP 8.5 (Alpha - unavailable)",
 			"Install PHP Composer",
 			"Install Python & pip",
 			"Install MySQL",
 			"Install Caddy Server",
 			"Install Git CLI",
+			"Install Supervisor",
 			"Create New Laravel Site",
 			"Update Laravel Site",
+			"Setup Laravel Queue Worker",
 			"Backup MySQL Database",
 			"System Status",
 			"View Installation Logs",
@@ -286,6 +288,12 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if serviceName == "" {
 				serviceName = m.queueServiceName
 			}
+
+			// Handle service-specific post-installation setup
+			if serviceName == "caddy" {
+				modelPtr.setupCaddyLaravelConfig()
+			}
+
 			modelPtr.refreshServiceStatus(serviceName)
 		}
 
@@ -314,8 +322,9 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 		newModel, cmd := m.installPHP()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 1: // Upgrade to PHP 8.5
-		newModel, cmd := m.upgradeToPHP85()
-		return newModel, tea.Batch(tea.ClearScreen, cmd)
+		//newModel, cmd := m.upgradeToPHP85()
+		//return newModel, tea.Batch(tea.ClearScreen, cmd)
+		return m, nil
 	case 2: // Install PHP Composer
 		newModel, cmd := m.installComposer()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
@@ -331,16 +340,21 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 	case 6: // Install Git CLI
 		newModel, cmd := m.installGit()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 7: // Create New Laravel Site
-		return m.startInput("Enter site name (e.g., myapp):", "siteName", 7)
-	case 8: // Update Laravel Site
-		return m.startInput("Select site number:", "siteIndex", 8)
-	case 9: // Backup MySQL Database
-		return m.startInput("Enter database name:", "dbName", 9)
-	case 10: // System Status
+	case 7: // Install Supervisor
+		newModel, cmd := m.installSupervisor()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	case 8: // Create New Laravel Site
+		return m.startInput("Enter site name (e.g., myapp):", "siteName", 8)
+	case 9: // Update Laravel Site
+		return m.startInput("Select site number:", "siteIndex", 9)
+	case 10: // Setup Laravel Queue Worker
+		return m.startInput("Enter Laravel site name:", "queueSiteName", 10)
+	case 11: // Backup MySQL Database
+		return m.startInput("Enter database name:", "dbName", 11)
+	case 12: // System Status
 		newModel, cmd := m.showSystemStatus()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 11: // View Installation Logs
+	case 13: // View Installation Logs
 		newModel, cmd := m.showInstallationLogs()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
@@ -351,11 +365,13 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 func (m model) processFormInput() (tea.Model, tea.Cmd) {
 	// This function handles the form input flow for different actions
 	switch m.currentAction {
-	case 7: // Create New Laravel Site
+	case 8: // Create New Laravel Site
 		return m.handleLaravelSiteForm()
-	case 8: // Update Laravel Site
+	case 9: // Update Laravel Site
 		return m.handleUpdateSiteForm()
-	case 9: // Backup MySQL Database
+	case 10: // Setup Laravel Queue Worker
+		return m.handleQueueWorkerForm()
+	case 11: // Backup MySQL Database
 		return m.handleBackupForm()
 	}
 
@@ -399,6 +415,9 @@ func (m *model) checkServiceInstallations() {
 
 	// Check Git installation
 	m.serviceStatus["git"] = m.isServiceInstalled("git", "--version")
+
+	// Check Supervisor installation
+	m.serviceStatus["supervisor"] = m.isServiceInstalled("supervisorctl", "version")
 }
 
 func (m model) isServiceInstalled(command string, args ...string) bool {
@@ -468,13 +487,23 @@ func (m model) viewMenu() string {
 			serviceIcon = m.getServiceIcon("caddy") + " "
 		case 6: // Install Git CLI
 			serviceIcon = m.getServiceIcon("git") + " "
+		case 7: // Install Supervisor
+			serviceIcon = m.getServiceIcon("supervisor") + " "
 		}
 
 		if m.cursor == i {
 			cursor = ">"
-			choice = selectedStyle.Render(serviceIcon + choice)
+			if i == 1 { // Style for disabled selected option
+				choice = choiceStyle.Render(serviceIcon + choice)
+			} else {
+				choice = selectedStyle.Render(serviceIcon + choice)
+			}
 		} else {
-			choice = choiceStyle.Render(serviceIcon + choice)
+			if i == 1 { // Style for disabled non-selected option
+				choice = choiceStyle.Render(serviceIcon + choice)
+			} else {
+				choice = choiceStyle.Render(serviceIcon + choice)
+			}
 		}
 
 		s += fmt.Sprintf("%s %s\n", cursor, choice)

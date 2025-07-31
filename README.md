@@ -1,10 +1,16 @@
-# 🔧 Crucible - Laravel Server Setup Tool
+# 🔧 Crucible - VPS Setup Tool PHP, Composer, Python, Mysql and Caddy
 
-Crucible is a terminal-based tool built with Bubble Tea that simplifies setting up Ubuntu or Fedora servers for Laravel applications. It provides an interactive menu to install and configure all necessary components for a production Laravel environment.
+Warning! ONLY for use on new servers with Ubuntu and Fedora
+
+Warning! Crucible is in alpha-stage. Expect bugs and errors
+
+Crucible is an opinionated and lightweight terminal server management tool.
+
+Crucible is a terminal-based tool (TUI) built with Bubble Tea that simplifies setting up Ubuntu or Fedora servers for Laravel applications. It provides an interactive menu to install and configure all necessary components for a production Laravel environment.
 
 ## Features
 
-- **PHP Management**: Install PHP 8.4 with option to upgrade to PHP 8.5
+- **PHP Management**: Install PHP 8.4 with option to upgrade to PHP 8.5 (alpha-release)
 - **Composer**: Install PHP Composer for dependency management
 - **MySQL**: Install MySQL server with best practice configurations
 - **Caddy Server**: Install and configure Caddy with Laravel-optimized settings

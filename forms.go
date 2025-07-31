@@ -448,6 +448,121 @@ func parseInt(s string) int {
 	return 0
 }
 
+func (m model) handleQueueWorkerForm() (tea.Model, tea.Cmd) {
+	switch m.inputField {
+	case "queueSiteName":
+		if m.inputValue == "" {
+			m.report = []string{warnStyle.Render("❌ Site name cannot be empty")}
+			m.state = stateMenu
+			return m, nil
+		}
+
+		// Check if site exists
+		sitePath := filepath.Join("/var/www", m.inputValue)
+		if _, err := os.Stat(sitePath); os.IsNotExist(err) {
+			m.report = []string{warnStyle.Render(fmt.Sprintf("❌ Laravel site '%s' does not exist at %s", m.inputValue, sitePath))}
+			m.state = stateMenu
+			return m, nil
+		}
+
+		m.formData["queueSiteName"] = m.inputValue
+		return m.startInput("Enter queue connection (default: database):", "queueConnection", 13)
+
+	case "queueConnection":
+		if m.inputValue == "" {
+			m.inputValue = "database"
+		}
+		m.formData["queueConnection"] = m.inputValue
+		return m.startInput("Enter number of worker processes (default: 1):", "queueProcesses", 13)
+
+	case "queueProcesses":
+		if m.inputValue == "" {
+			m.inputValue = "1"
+		}
+		// Validate numeric input
+		if !regexp.MustCompile(`^\d+$`).MatchString(m.inputValue) {
+			m.report = []string{warnStyle.Render("❌ Number of processes must be a valid number")}
+			m.state = stateMenu
+			return m, nil
+		}
+		m.formData["queueProcesses"] = m.inputValue
+		return m.startInput("Enter queue name (default: default):", "queueName", 13)
+
+	case "queueName":
+		if m.inputValue == "" {
+			m.inputValue = "default"
+		}
+		m.formData["queueName"] = m.inputValue
+		newModel, cmd := m.setupQueueWorkerWithData()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	}
+
+	m.state = stateMenu
+	return m, nil
+}
+
+func (m model) setupQueueWorkerWithData() (tea.Model, tea.Cmd) {
+	siteName := m.formData["queueSiteName"]
+	connection := m.formData["queueConnection"]
+	processes := m.formData["queueProcesses"]
+	queueName := m.formData["queueName"]
+	sitePath := filepath.Join("/var/www", siteName)
+
+	m.state = stateProcessing
+	m.processingMsg = "Setting up Laravel Queue Worker..."
+	m.report = []string{infoStyle.Render("Setting up Laravel Queue Worker with Supervisor")}
+
+	// Generate supervisor configuration
+	workerName := fmt.Sprintf("laravel-worker-%s", siteName)
+	configPath := fmt.Sprintf("/etc/supervisor/conf.d/%s.conf", workerName)
+
+	supervisorConfig := fmt.Sprintf(`[program:%s]
+process_name=%%(program_name)s_%%(process_num)02d
+command=php %s/artisan queue:work %s --sleep=3 --tries=3 --max-time=3600 --queue=%s
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=%s
+redirect_stderr=true
+stdout_logfile=%s/storage/logs/worker.log
+stdout_logfile_maxbytes=100MB
+stdout_logfile_backups=2
+stopwaitsecs=3600
+`, workerName, sitePath, connection, queueName, processes, sitePath)
+
+	var commands []string
+	var descriptions []string
+
+	// 1. Create supervisor configuration
+	commands = append(commands, fmt.Sprintf("sudo bash -c 'cat > %s << \"EOF\"\n%sEOF'", configPath, supervisorConfig))
+	descriptions = append(descriptions, "Creating Supervisor configuration...")
+
+	// 2. Create log directory if it doesn't exist
+	commands = append(commands, fmt.Sprintf("sudo mkdir -p %s/storage/logs", sitePath))
+	descriptions = append(descriptions, "Creating log directory...")
+
+	// 3. Set proper permissions
+	commands = append(commands, fmt.Sprintf("sudo chown -R www-data:www-data %s/storage/logs", sitePath))
+	descriptions = append(descriptions, "Setting log permissions...")
+
+	// 4. Reload supervisor configuration
+	commands = append(commands, "sudo supervisorctl reread")
+	descriptions = append(descriptions, "Reloading Supervisor configuration...")
+
+	// 5. Update supervisor with new configuration
+	commands = append(commands, "sudo supervisorctl update")
+	descriptions = append(descriptions, "Updating Supervisor...")
+
+	// 6. Start the worker
+	commands = append(commands, fmt.Sprintf("sudo supervisorctl start %s:*", workerName))
+	descriptions = append(descriptions, "Starting queue worker...")
+
+	// Execute the command queue
+	return m.startCommandQueue(commands, descriptions, "queue-worker")
+}
+
 // isValidGitURL validates common Git repository URL formats
 func isValidGitURL(url string) bool {
 	// HTTPS format: https://github.com/user/repo.git

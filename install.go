@@ -95,46 +95,11 @@ python3.13 -m pip install --upgrade pip setuptools wheel virtualenv`
 		return m, nil
 	}
 
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Python: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-	} else {
-		m.report = append(m.report, infoStyle.Render("✅ Python 3.13 installed successfully"))
-
-		// Verify installation and show version
-		verifyCmd := "python3 --version && pip3 --version"
-		verifyResult := modelPtr.executeAndLogCommand(verifyCmd)
-		if verifyResult.Error == nil {
-			m.report = append(m.report, infoStyle.Render("✅ Installation verified:"))
-			lines := strings.Split(strings.TrimSpace(verifyResult.Output), "\n")
-			for _, line := range lines {
-				if strings.TrimSpace(line) != "" {
-					m.report = append(m.report, infoStyle.Render("  "+line))
-				}
-			}
-		}
-
-		// Create a sample virtual environment to verify venv works
-		m.report = append(m.report, infoStyle.Render("✅ Testing virtual environment creation..."))
-		testVenvCmd := `cd /tmp && python3 -m venv test_env && source test_env/bin/activate && python --version && deactivate && rm -rf test_env`
-		testResult := modelPtr.executeAndLogCommand(testVenvCmd)
-		if testResult.Error == nil {
-			m.report = append(m.report, infoStyle.Render("✅ Virtual environment functionality verified"))
-		} else {
-			m.report = append(m.report, warnStyle.Render("⚠️  Virtual environment test had issues, but Python should still work"))
-		}
-
-		m.refreshServiceStatus("python")
-	}
-
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing Python 3.13", "python"),
+	)
 }
 
 func (m model) installMySQL() (tea.Model, tea.Cmd) {
@@ -194,38 +159,11 @@ func (m model) installMySQL() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Executing: %s", command)))
-
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install MySQL: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-	} else {
-		m.report = append(m.report, infoStyle.Render("✅ MySQL package installed successfully"))
-
-		// Verify MySQL service status
-		statusCmd := "sudo systemctl status mysql 2>/dev/null || sudo systemctl status mysqld 2>/dev/null || echo 'Service status check failed'"
-		statusResult := modelPtr.executeAndLogCommand(statusCmd)
-		if statusResult.Error == nil && strings.Contains(statusResult.Output, "active") {
-			m.report = append(m.report, infoStyle.Render("✅ MySQL service is running"))
-		} else {
-			m.report = append(m.report, warnStyle.Render("⚠️  MySQL service status unclear - check manually"))
-		}
-
-		m.report = append(m.report, infoStyle.Render("💡 Next steps:"))
-		m.report = append(m.report, infoStyle.Render("  1. Run 'sudo mysql_secure_installation' to secure MySQL"))
-		m.report = append(m.report, infoStyle.Render("  2. Create database users as needed"))
-
-		m.refreshServiceStatus("mysql")
-	}
-
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing MySQL", "mysql"),
+	)
 }
 
 func (m model) installCaddy() (tea.Model, tea.Cmd) {
@@ -253,26 +191,11 @@ sudo dnf install -y caddy`
 		return m, nil
 	}
 
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Caddy: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-		m.processingMsg = ""
-		return m, nil
-	}
-
-	// Create Laravel Caddy configuration
-	m.setupCaddyLaravelConfig()
-
-	m.report = append(m.report, infoStyle.Render("✅ Caddy installed successfully"))
-	m.refreshServiceStatus("caddy")
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing Caddy server", "caddy"),
+	)
 }
 
 func (m model) installGit() (tea.Model, tea.Cmd) {
@@ -298,6 +221,37 @@ func (m model) installGit() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(
 		m.spinner.Tick,
 		executeCommandAsync(command, "Installing Git CLI", "git"),
+	)
+}
+
+func (m model) installSupervisor() (tea.Model, tea.Cmd) {
+	m.state = stateProcessing
+	m.processingMsg = "Installing Supervisor process manager..."
+	m.report = []string{infoStyle.Render("Installing Supervisor process manager")}
+
+	osType := getOSType()
+	var command string
+
+	switch osType {
+	case "ubuntu":
+		command = `sudo apt update && \
+sudo apt install -y supervisor && \
+sudo systemctl enable supervisor && \
+sudo systemctl start supervisor`
+	case "fedora":
+		command = `sudo dnf install -y supervisor && \
+sudo systemctl enable supervisord && \
+sudo systemctl start supervisord`
+	default:
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
+		m.processingMsg = ""
+		return m, nil
+	}
+
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing Supervisor", "supervisor"),
 	)
 }
 
