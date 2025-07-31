@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,18 @@ const (
 	stateProcessing
 	stateLogViewer
 )
+
+// Message types for async command execution
+type cmdExecutionMsg struct {
+	command     string
+	description string
+	serviceName string
+}
+
+type cmdCompletedMsg struct {
+	result      LoggedExecResult
+	serviceName string
+}
 
 type model struct {
 	choices       []string
@@ -77,8 +90,8 @@ func initialModel() model {
 
 	// Initialize spinner
 	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Spinner = spinner.Points
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // Bright Green
 
 	m := model{
 		choices: []string{
@@ -180,12 +193,11 @@ func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc":
 			// Clear screen and cancel input, return to menu
-			clearScreen()
 			m.state = stateMenu
 			m.inputValue = ""
 			m.inputPrompt = ""
 			m.cursor = 0 // Reset cursor when canceling input
-			return m, nil
+			return m, tea.ClearScreen
 		case "enter":
 			// Save input and proceed
 			m.formData[m.inputField] = m.inputValue
@@ -208,19 +220,40 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "enter", " ":
-			// Clear screen before returning to main menu
-			clearScreen()
-
-			// Return to main menu after processing and refresh service status
-			m.state = stateMenu
-			m.formData = make(map[string]string)
-			m.processingMsg = ""
-			m.report = []string{} // Clear report
-			m.cursor = 0          // Reset cursor to top of menu
-			modelPtr := &m
-			modelPtr.checkServiceInstallations() // Refresh all service statuses
-			return *modelPtr, nil
+			// Only allow exit if processing is complete (no processingMsg)
+			if m.processingMsg == "" {
+				// Return to main menu after processing and refresh service status
+				m.state = stateMenu
+				m.formData = make(map[string]string)
+				m.report = []string{} // Clear report
+				m.cursor = 0          // Reset cursor to top of menu
+				modelPtr := &m
+				modelPtr.checkServiceInstallations() // Refresh all service statuses
+				return *modelPtr, tea.ClearScreen
+			}
 		}
+	case cmdCompletedMsg:
+		// Command execution completed
+		m.processingMsg = "" // Clear spinner message
+
+		// Log the command execution
+		modelPtr := &m
+		if logErr := modelPtr.logCommand(msg.result); logErr != nil {
+			m.logger.Error("Failed to log command", "error", logErr)
+		}
+
+		if msg.result.Error != nil {
+			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed: %v", msg.result.Error)))
+			if strings.TrimSpace(msg.result.Output) != "" {
+				m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", msg.result.Output)))
+			}
+		} else {
+			m.report = append(m.report, infoStyle.Render("✅ Installation completed successfully"))
+			if msg.serviceName != "" {
+				modelPtr.refreshServiceStatus(msg.serviceName)
+			}
+		}
+		return *modelPtr, nil
 	default:
 		// Update spinner
 		var cmd tea.Cmd
@@ -236,26 +269,26 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 
 	switch m.cursor {
 	case 0: // Install PHP 8.4
-		clearScreen()
-		return m.installPHP()
+		newModel, cmd := m.installPHP()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 1: // Upgrade to PHP 8.5
-		clearScreen()
-		return m.upgradeToPHP85()
+		newModel, cmd := m.upgradeToPHP85()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 2: // Install PHP Composer
-		clearScreen()
-		return m.installComposer()
+		newModel, cmd := m.installComposer()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 3: // Install Python & pip
-		clearScreen()
-		return m.installPython()
+		newModel, cmd := m.installPython()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 4: // Install MySQL
-		clearScreen()
-		return m.installMySQL()
+		newModel, cmd := m.installMySQL()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 5: // Install Caddy Server
-		clearScreen()
-		return m.installCaddy()
+		newModel, cmd := m.installCaddy()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 6: // Install Git CLI
-		clearScreen()
-		return m.installGit()
+		newModel, cmd := m.installGit()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 7: // Create New Laravel Site
 		return m.startInput("Enter site name (e.g., myapp):", "siteName", 7)
 	case 8: // Update Laravel Site
@@ -263,11 +296,11 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 	case 9: // Backup MySQL Database
 		return m.startInput("Enter database name:", "dbName", 9)
 	case 10: // System Status
-		clearScreen()
-		return m.showSystemStatus()
+		newModel, cmd := m.showSystemStatus()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 11: // View Installation Logs
-		clearScreen()
-		return m.showInstallationLogs()
+		newModel, cmd := m.showInstallationLogs()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
 
 	return m, nil
@@ -291,23 +324,19 @@ func (m model) processFormInput() (tea.Model, tea.Cmd) {
 }
 
 func (m model) startInput(prompt, field string, action int) (tea.Model, tea.Cmd) {
-	// Clear screen before starting input
-	clearScreen()
 	m.state = stateInput
 	m.inputPrompt = prompt
 	m.inputField = field
 	m.inputValue = ""
 	m.currentAction = action
 	m.cursor = 0 // Reset cursor when starting input
-	return m, nil
+	return m, tea.ClearScreen
 }
 
 func (m model) startProcessingWithMessage(message string) (tea.Model, tea.Cmd) {
-	// Clear screen before starting processing
-	clearScreen()
 	m.state = stateProcessing
 	m.processingMsg = message
-	return m, m.spinner.Tick
+	return m, tea.Batch(tea.ClearScreen, m.spinner.Tick)
 }
 
 func (m *model) checkServiceInstallations() {
@@ -334,11 +363,6 @@ func (m model) isServiceInstalled(command string, args ...string) bool {
 	cmd := exec.Command(command, args...)
 	err := cmd.Run()
 	return err == nil
-}
-
-// clearScreen clears the terminal screen using ANSI escape sequences
-func clearScreen() {
-	fmt.Print("\033[2J\033[H")
 }
 
 func (m *model) refreshServiceStatus(serviceName string) {
@@ -448,12 +472,11 @@ func (m model) updateLogViewer(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			// Return to main menu
-			clearScreen()
 			m.state = stateMenu
 			m.cursor = 0
 			m.logLines = []string{}
 			m.logScroll = 0
-			return m, nil
+			return m, tea.ClearScreen
 		case "up", "k":
 			// Scroll up
 			if m.logScroll > 0 {
@@ -551,11 +574,46 @@ func (m model) viewLogViewer() string {
 	return s
 }
 
-func main() {
-	// Clear screen on startup
-	clearScreen()
+// executeCommandAsync creates a command that executes a shell command asynchronously
+func executeCommandAsync(command, description, serviceName string) tea.Cmd {
+	return func() tea.Msg {
+		// Execute the command using the existing logging infrastructure
+		startTime := time.Now()
+		cmd := exec.Command("bash", "-c", command)
+		output, err := cmd.CombinedOutput()
+		endTime := time.Now()
+		duration := endTime.Sub(startTime)
 
-	p := tea.NewProgram(initialModel())
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
+			}
+		}
+
+		result := LoggedExecResult{
+			Command:   command,
+			Output:    string(output),
+			Error:     err,
+			ExitCode:  exitCode,
+			StartTime: startTime,
+			EndTime:   endTime,
+			Duration:  duration,
+		}
+
+		// Log the command execution (need to create a model instance for logging)
+		// This is a simplified version - in a real app you might want to pass a logger
+		// For now, we'll let the result handling in updateProcessing deal with it
+
+		return cmdCompletedMsg{
+			result:      result,
+			serviceName: serviceName,
+		}
+	}
+}
+
+func main() {
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v", err)
 		os.Exit(1)

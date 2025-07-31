@@ -160,3 +160,34 @@ For issues and questions:
 1. Check the troubleshooting section
 2. Review system logs
 3. Ensure proper permissions and prerequisites
+
+## Testrun Crucible on local machine using Docker
+
+Dockerfile --- DO NOT USE IN PRODUCTION ----
+
+# Use the official Fedora image as the base
+FROM fedora:latest
+
+RUN echo 'root:your_secret_password' | chpasswd
+
+# Install nano, sudo, and other useful tools
+# -y automatically answers yes to prompts
+RUN dnf update -y && \
+    dnf install -y \
+    nano \
+    sudo \
+    git \
+    curl \
+    wget && \
+    dnf clean all
+
+
+sudo docker build -t my-fedora-server .
+sudo docker run -it --privileged my-fedora-server /usr/sbin/init
+
+wget https://github.com/ekrist1/crucible/archive/refs/heads/main.zip
+dnf install unzip
+unzip main.zip
+cd crucible-main
+chmod +x crucible
+sudo ./crucible

@@ -36,22 +36,11 @@ sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring
 		return m, nil
 	}
 
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install PHP: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-	} else {
-		m.report = append(m.report, infoStyle.Render("✅ PHP 8.4 installed successfully"))
-		m.refreshServiceStatus("php")
-	}
-
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing PHP 8.4", "php"),
+	)
 }
 
 func (m model) installComposer() (tea.Model, tea.Cmd) {
@@ -63,22 +52,11 @@ func (m model) installComposer() (tea.Model, tea.Cmd) {
 sudo mv composer.phar /usr/local/bin/composer && \
 sudo chmod +x /usr/local/bin/composer`
 
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Composer: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-	} else {
-		m.report = append(m.report, infoStyle.Render("✅ Composer installed successfully"))
-		m.refreshServiceStatus("composer")
-	}
-
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing PHP Composer", "composer"),
+	)
 }
 
 // installPython installs Python 3.13 with pip and virtual environment support
@@ -316,22 +294,11 @@ func (m model) installGit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Execute command with logging
-	modelPtr := &m
-	result := modelPtr.executeAndLogCommand(command)
-
-	if result.Error != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to install Git: %v", result.Error)))
-		if strings.TrimSpace(result.Output) != "" {
-			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", result.Output)))
-		}
-	} else {
-		m.report = append(m.report, infoStyle.Render("✅ Git installed successfully"))
-		m.refreshServiceStatus("git")
-	}
-
-	m.processingMsg = ""
-	return m, nil
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing Git CLI", "git"),
+	)
 }
 
 func (m model) setupCaddyLaravelConfig() {

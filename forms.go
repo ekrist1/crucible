@@ -40,8 +40,8 @@ func (m model) handleLaravelSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["gitRepo"] = m.inputValue
-		clearScreen()
-		return m.createLaravelSiteWithData()
+		newModel, cmd := m.createLaravelSiteWithData()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
 
 	m.state = stateMenu
@@ -57,8 +57,8 @@ func (m model) handleUpdateSiteForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.formData["siteIndex"] = m.inputValue
-		clearScreen()
-		return m.updateLaravelSiteWithData()
+		newModel, cmd := m.updateLaravelSiteWithData()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
 
 	m.state = stateMenu
@@ -106,8 +106,8 @@ func (m model) handleBackupForm() (tea.Model, tea.Cmd) {
 			m.inputValue = "~/backups/"
 		}
 		m.formData["remotePath"] = m.inputValue
-		clearScreen()
-		return m.backupMySQLWithData()
+		newModel, cmd := m.backupMySQLWithData()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
 
 	m.state = stateMenu
