@@ -166,25 +166,24 @@ func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
 	commands = append(commands, "sudo systemctl reload caddy")
 	descriptions = append(descriptions, "Reloading Caddy server...")
 
-	// Start the first command asynchronously
-	newModel, cmd := m.startProcessingWithMessage(descriptions[0])
-	asyncCmd := executeCommandAsync(commands[0], descriptions[0], "") // No specific service to refresh
-	return newModel, tea.Batch(cmd, asyncCmd)
+	// Start the command queue to execute all commands sequentially
+	return m.startCommandQueue(commands, descriptions, "")
 }
 
 func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
-	m.state = stateProcessing
-	m.report = []string{infoStyle.Render("Updating Laravel site")}
-
 	// List available sites
 	sites, err := m.listLaravelSites()
 	if err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to list sites: %v", err)))
+		m.state = stateProcessing
+		m.processingMsg = ""
+		m.report = []string{warnStyle.Render(fmt.Sprintf("❌ Failed to list sites: %v", err))}
 		return m, nil
 	}
 
 	if len(sites) == 0 {
-		m.report = append(m.report, infoStyle.Render("📋 No Laravel sites found in /var/www"))
+		m.state = stateProcessing
+		m.processingMsg = ""
+		m.report = []string{infoStyle.Render("📋 No Laravel sites found in /var/www")}
 		return m, nil
 	}
 
@@ -194,7 +193,9 @@ func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
 	if idx := parseInt(siteIndex); idx > 0 && idx <= len(sites) {
 		selectedSite = sites[idx-1]
 	} else {
-		m.report = append(m.report, warnStyle.Render("❌ Invalid site selection"))
+		m.state = stateProcessing
+		m.processingMsg = ""
+		m.report = []string{warnStyle.Render("❌ Invalid site selection")}
 		return m, nil
 	}
 
@@ -202,66 +203,55 @@ func (m model) updateLaravelSiteWithData() (tea.Model, tea.Cmd) {
 
 	// Check if it's a Git repository
 	if _, err := os.Stat(filepath.Join(sitePath, ".git")); os.IsNotExist(err) {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Site is not a Git repository: %s", selectedSite)))
+		m.state = stateProcessing
+		m.processingMsg = ""
+		m.report = []string{warnStyle.Render(fmt.Sprintf("❌ Site is not a Git repository: %s", selectedSite))}
 		return m, nil
 	}
 
-	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Updating Laravel site: %s (path: %s)", selectedSite, sitePath)))
+	var commands []string
+	var descriptions []string
 
-	// Put site in maintenance mode
-	cmd := exec.Command("php", "artisan", "down")
-	cmd.Dir = sitePath
-	cmd.Run()
+	// 1. Put site in maintenance mode
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan down", sitePath))
+	descriptions = append(descriptions, "Putting site in maintenance mode...")
 
-	// Git pull
-	cmd = exec.Command("git", "pull", "origin", "main")
-	cmd.Dir = sitePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to pull from Git: %v\nOutput: %s", err, string(output))))
-		// Try to bring site back up
-		cmd = exec.Command("php", "artisan", "up")
-		cmd.Dir = sitePath
-		cmd.Run()
-		return m, nil
-	}
+	// 2. Git pull
+	commands = append(commands, fmt.Sprintf("cd %s && git pull origin main", sitePath))
+	descriptions = append(descriptions, "Pulling latest changes from Git...")
 
-	// Install/update dependencies
-	cmd = exec.Command("composer", "install", "--no-dev", "--optimize-autoloader")
-	cmd.Dir = sitePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed to update Composer dependencies: %v\nOutput: %s", err, string(output))))
-	}
+	// 3. Install/update dependencies
+	commands = append(commands, fmt.Sprintf("cd %s && composer install --no-dev --optimize-autoloader", sitePath))
+	descriptions = append(descriptions, "Updating Composer dependencies...")
 
-	// Run migrations
-	cmd = exec.Command("php", "artisan", "migrate", "--force")
-	cmd.Dir = sitePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("⚠ Migration failed: %v\nOutput: %s", err, string(output))))
-	}
+	// 4. Run migrations
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan migrate --force", sitePath))
+	descriptions = append(descriptions, "Running database migrations...")
 
-	// Clear cache
-	cmd = exec.Command("php", "artisan", "cache:clear")
-	cmd.Dir = sitePath
-	cmd.Run()
+	// 5. Clear cache
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan cache:clear", sitePath))
+	descriptions = append(descriptions, "Clearing application cache...")
 
-	cmd = exec.Command("php", "artisan", "config:clear")
-	cmd.Dir = sitePath
-	cmd.Run()
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan config:clear", sitePath))
+	descriptions = append(descriptions, "Clearing configuration cache...")
 
-	cmd = exec.Command("php", "artisan", "view:clear")
-	cmd.Dir = sitePath
-	cmd.Run()
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan view:clear", sitePath))
+	descriptions = append(descriptions, "Clearing view cache...")
 
-	// Set permissions
-	m.setLaravelPermissions(sitePath)
+	// 6. Set permissions
+	commands = append(commands, fmt.Sprintf("sudo chown -R www-data:www-data %s", sitePath))
+	descriptions = append(descriptions, "Setting ownership...")
+	commands = append(commands, fmt.Sprintf("find %s -type d -exec chmod 755 {} + && find %s -type f -exec chmod 644 {} +", sitePath, sitePath))
+	descriptions = append(descriptions, "Setting file permissions...")
+	commands = append(commands, fmt.Sprintf("chmod -R 775 %s/storage %s/bootstrap/cache", sitePath, sitePath))
+	descriptions = append(descriptions, "Setting writable permissions...")
 
-	// Bring site back up
-	cmd = exec.Command("php", "artisan", "up")
-	cmd.Dir = sitePath
-	cmd.Run()
+	// 7. Bring site back up
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan up", sitePath))
+	descriptions = append(descriptions, "Bringing site back online...")
 
-	m.report = append(m.report, infoStyle.Render(fmt.Sprintf("Laravel site updated successfully: %s", selectedSite)))
-	return m, nil
+	// Start the command queue to execute all commands sequentially
+	return m.startCommandQueue(commands, descriptions, "")
 }
 
 func (m model) backupMySQLWithData() (tea.Model, tea.Cmd) {

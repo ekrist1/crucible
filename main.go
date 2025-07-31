@@ -34,6 +34,13 @@ type cmdCompletedMsg struct {
 	serviceName string
 }
 
+type cmdQueueMsg struct {
+	commands     []string
+	descriptions []string
+	serviceName  string
+	currentIndex int
+}
+
 type model struct {
 	choices       []string
 	cursor        int
@@ -52,6 +59,11 @@ type model struct {
 	// Log viewer state
 	logLines  []string // All log lines
 	logScroll int      // Current scroll position
+	// Command queue state
+	commandQueue     []string // Commands to execute in sequence
+	descriptionQueue []string // Descriptions for each command
+	queueIndex       int      // Current command index
+	queueServiceName string   // Service name for queue
 }
 
 var (
@@ -234,25 +246,55 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case cmdCompletedMsg:
 		// Command execution completed
-		m.processingMsg = "" // Clear spinner message
+		modelPtr := &m
 
 		// Log the command execution
-		modelPtr := &m
 		if logErr := modelPtr.logCommand(msg.result); logErr != nil {
 			m.logger.Error("Failed to log command", "error", logErr)
 		}
 
 		if msg.result.Error != nil {
+			// Command failed - stop queue and show error
+			m.processingMsg = ""
+			m.commandQueue = []string{}
+			m.descriptionQueue = []string{}
+			m.queueIndex = 0
 			m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Failed: %v", msg.result.Error)))
 			if strings.TrimSpace(msg.result.Output) != "" {
 				m.report = append(m.report, warnStyle.Render(fmt.Sprintf("Output: %s", msg.result.Output)))
 			}
-		} else {
-			m.report = append(m.report, infoStyle.Render("✅ Installation completed successfully"))
-			if msg.serviceName != "" {
-				modelPtr.refreshServiceStatus(msg.serviceName)
-			}
+			return *modelPtr, nil
 		}
+
+		// Command succeeded - check if there are more commands in queue
+		if len(m.commandQueue) > 0 && m.queueIndex < len(m.commandQueue)-1 {
+			// Execute next command in queue
+			m.queueIndex++
+			m.processingMsg = m.descriptionQueue[m.queueIndex]
+			m.report = append(m.report, infoStyle.Render(fmt.Sprintf("✅ %s", m.descriptionQueue[m.queueIndex-1])))
+			return *modelPtr, tea.Batch(
+				m.spinner.Tick,
+				executeCommandAsync(m.commandQueue[m.queueIndex], m.descriptionQueue[m.queueIndex], m.queueServiceName),
+			)
+		}
+
+		// All commands completed successfully
+		m.processingMsg = ""
+		m.report = append(m.report, infoStyle.Render("✅ All operations completed successfully"))
+		if msg.serviceName != "" || m.queueServiceName != "" {
+			serviceName := msg.serviceName
+			if serviceName == "" {
+				serviceName = m.queueServiceName
+			}
+			modelPtr.refreshServiceStatus(serviceName)
+		}
+
+		// Clear queue
+		m.commandQueue = []string{}
+		m.descriptionQueue = []string{}
+		m.queueIndex = 0
+		m.queueServiceName = ""
+
 		return *modelPtr, nil
 	default:
 		// Update spinner
@@ -404,7 +446,7 @@ func (m model) View() string {
 }
 
 func (m model) viewMenu() string {
-	s := titleStyle.Render("🔧 Crucible - Laravel Server Setup") + "\n\n"
+	s := titleStyle.Render("🔧 Crucible - Server Setup made easy for Laravel and Python") + "\n\n"
 
 	for i, choice := range m.choices {
 		cursor := " "
@@ -572,6 +614,26 @@ func (m model) viewLogViewer() string {
 
 	s += "\nNavigation: ↑/↓ scroll, Home/End jump, PgUp/PgDn page, q/Esc to exit\n"
 	return s
+}
+
+// startCommandQueue starts executing a queue of commands sequentially
+func (m model) startCommandQueue(commands, descriptions []string, serviceName string) (tea.Model, tea.Cmd) {
+	if len(commands) == 0 || len(descriptions) == 0 {
+		return m, nil
+	}
+
+	m.state = stateProcessing
+	m.commandQueue = commands
+	m.descriptionQueue = descriptions
+	m.queueIndex = 0
+	m.queueServiceName = serviceName
+	m.processingMsg = descriptions[0]
+	m.report = []string{infoStyle.Render("Starting multi-step operation...")}
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(commands[0], descriptions[0], serviceName),
+	)
 }
 
 // executeCommandAsync creates a command that executes a shell command asynchronously
