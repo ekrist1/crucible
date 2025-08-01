@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +13,7 @@ import (
 	"github.com/charmbracelet/log"
 	
 	"crucible/internal/services"
+	"crucible/internal/logging"
 )
 
 type AppState int
@@ -43,7 +43,7 @@ type CmdExecutionMsg struct {
 }
 
 type CmdCompletedMsg struct {
-	Result      LoggedExecResult
+	Result      logging.LoggedExecResult
 	ServiceName string
 }
 
@@ -58,7 +58,7 @@ type Model struct {
 	Choices       []string
 	Cursor        int
 	Selected      map[int]struct{}
-	Logger        *log.Logger
+	Logger        *logging.Logger
 	State         AppState
 	CurrentMenu   MenuLevel // Track which menu we're in
 	InputPrompt   string
@@ -108,11 +108,16 @@ var (
 )
 
 func NewModel() Model {
-	logger := log.NewWithOptions(os.Stdout, log.Options{
-		ReportCaller:    false,
-		ReportTimestamp: true,
-		Prefix:          "Crucible 🔧",
-	})
+	logger, err := logging.NewLogger(logging.DefaultLogPath())
+	if err != nil {
+		// Fallback to basic stdout logger if file logger fails
+		baseLogger := log.NewWithOptions(os.Stdout, log.Options{
+			ReportCaller:    false,
+			ReportTimestamp: true,
+			Prefix:          "Crucible 🔧",
+		})
+		logger = &logging.Logger{Logger: baseLogger}
+	}
 
 	// Initialize spinner
 	s := spinner.New()
@@ -139,12 +144,6 @@ func NewModel() Model {
 
 	// Check initial service installation status
 	m.checkServiceInstallations()
-
-	// Initialize logging
-	modelPtr := &m
-	if err := modelPtr.initializeLogging(); err != nil {
-		logger.Error("Failed to initialize logging", "error", err)
-	}
 
 	return m
 }
@@ -231,6 +230,7 @@ func (m Model) enterSubmenu() (tea.Model, tea.Cmd) {
 			"Create a new Laravel Site",
 			"Update Laravel Site",
 			"Setup Laravel Queue Worker",
+			"GitHub Authentication",
 			"Back to Main Menu",
 		}
 		m.Cursor = 0
@@ -353,6 +353,8 @@ func (m Model) handleLaravelManagementSelection() (tea.Model, tea.Cmd) {
 		return m.startInput("Select site number:", "siteIndex", 101)
 	case 2: // Setup Laravel Queue Worker
 		return m.startInput("Enter Laravel site name:", "queueSiteName", 102)
+	case 3: // GitHub Authentication
+		return m.handleGitHubAuth()
 	}
 	return m, nil
 }
@@ -472,6 +474,12 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle service-specific post-installation setup
 			if serviceName == "caddy" {
 				modelPtr.setupCaddyLaravelConfig()
+			} else if serviceName == "github-ssh" {
+				// Show the generated SSH key and instructions
+				modelPtr.showGeneratedSSHKey()
+			} else if serviceName == "github-test" {
+				// Show GitHub connection test results
+				modelPtr.showGitHubTestResults()
 			}
 
 			modelPtr.refreshServiceStatus(serviceName)
@@ -506,6 +514,12 @@ func (m Model) processFormInput() (tea.Model, tea.Cmd) {
 		return m.handleBackupForm()
 	case 200: // Install MySQL
 		return m.handleMySQLInstallForm()
+	case 300: // GitHub Authentication - Email input
+		return m.handleGitHubEmailInput()
+	case 301: // GitHub Authentication - Passphrase input
+		return m.handleGitHubPassphraseInput()
+	case 302: // GitHub Authentication - Action selection
+		return m.handleGitHubActionInput()
 	}
 
 	// Default: return to menu
@@ -690,7 +704,7 @@ func (m Model) viewInput() string {
 	
 	// Hide password input
 	displayValue := m.InputValue
-	if m.InputField == "mysqlRootPassword" {
+	if m.InputField == "mysqlRootPassword" || m.InputField == "githubPassphrase" {
 		displayValue = strings.Repeat("*", len(m.InputValue))
 	}
 	
@@ -859,7 +873,7 @@ func ExecuteCommandAsync(command, description, serviceName string) tea.Cmd {
 			}
 		}
 
-		result := LoggedExecResult{
+		result := logging.LoggedExecResult{
 			Command:   command,
 			Output:    string(output),
 			Error:     err,
@@ -876,25 +890,11 @@ func ExecuteCommandAsync(command, description, serviceName string) tea.Cmd {
 	}
 }
 
-// Placeholder types and functions that need to be implemented or moved from other files
-type LoggedExecResult struct {
-	Command   string
-	Output    string
-	Error     error
-	ExitCode  int
-	StartTime time.Time
-	EndTime   time.Time
-	Duration  time.Duration
-}
-
-// These functions will need to be implemented or moved from other files
-func (m *Model) initializeLogging() error {
-	// TODO: Move from utils.go or implement
-	return nil
-}
-
-func (m Model) logCommand(result LoggedExecResult) error {
-	// TODO: Move from utils.go or implement
+// Logging functions
+func (m Model) logCommand(result logging.LoggedExecResult) error {
+	if m.Logger != nil {
+		return m.Logger.LogCommand(result)
+	}
 	return nil
 }
 
@@ -1131,40 +1131,32 @@ func (m Model) showSystemStatus() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) showInstallationLogs() (tea.Model, tea.Cmd) {
-	// Try to read log file using the logging package
-	logPath := "/home/" + os.Getenv("USER") + "/.crucible/logs/crucible.log"
-	
-	// Try alternative log paths if the default doesn't exist
-	alternativePaths := []string{
-		logPath,
-		"/tmp/crucible.log",
-		"./crucible.log",
-	}
-	
+	// Use the logger to read log lines if available
 	var logLines []string
-	var foundLog bool
+	var err error
 	
-	for _, path := range alternativePaths {
-		if file, err := os.Open(path); err == nil {
-			defer file.Close()
-			scanner := bufio.NewScanner(file)
-			logLines = []string{}
-			for scanner.Scan() {
-				logLines = append(logLines, scanner.Text())
-			}
-			foundLog = true
-			break
-		}
+	if m.Logger != nil {
+		logLines, err = m.Logger.ReadLogLines()
 	}
 	
-	if !foundLog {
-		// No log file found, show empty state
+	if err != nil || len(logLines) == 0 {
+		// No log file found or error reading, show empty state
 		m.State = StateLogViewer
 		m.LogLines = []string{
 			"No installation logs found.",
 			"",
 			"Log files are created when you perform installation operations.",
 			"Try installing a service first, then check back here.",
+			"",
+			fmt.Sprintf("Log file location: %s", func() string {
+				if m.Logger != nil {
+					return m.Logger.GetLogFilePath()
+				}
+				return logging.DefaultLogPath()
+			}()),
+		}
+		if err != nil {
+			m.LogLines = append(m.LogLines, "", fmt.Sprintf("Error reading logs: %v", err))
 		}
 		m.LogScroll = 0
 		return m, tea.ClearScreen
@@ -1216,4 +1208,233 @@ func (m Model) handleMySQLInstallForm() (tea.Model, tea.Cmd) {
 	// Store password and proceed with installation
 	m.FormData["mysqlRootPassword"] = m.InputValue
 	return m.installMySQLWithPassword()
+}
+
+func (m Model) handleGitHubAuth() (tea.Model, tea.Cmd) {
+	// Check if SSH key already exists
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error getting home directory: %v", err))}
+		return m, tea.ClearScreen
+	}
+	
+	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
+	if _, err := os.Stat(pubKeyPath); err == nil {
+		// SSH key exists, ask user what they want to do
+		return m.startInput("SSH key exists. Options: [s]how key, [t]est connection, [r]egenerate:", "githubAction", 302)
+	}
+	
+	// SSH key doesn't exist, ask for email to generate one
+	return m.startInput("Enter your GitHub email address:", "githubEmail", 300)
+}
+
+func (m Model) showExistingSSHKey() (tea.Model, tea.Cmd) {
+	homeDir, _ := os.UserHomeDir()
+	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
+	
+	content, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error reading SSH key: %v", err))}
+		return m, tea.ClearScreen
+	}
+	
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.Report = []string{
+		TitleStyle.Render("🔑 GitHub SSH Key Found"),
+		"",
+		InfoStyle.Render("Your existing SSH public key:"),
+		"",
+		ChoiceStyle.Render(string(content)),
+		"",
+		InfoStyle.Render("📋 Instructions to add this key to GitHub:"),
+		"1. Copy the key above (select and Ctrl+C)",
+		"2. Go to GitHub.com → Settings → SSH and GPG keys",
+		"3. Click 'New SSH key'",
+		"4. Paste your key and give it a title",
+		"5. Click 'Add SSH key'",
+		"",
+		InfoStyle.Render("🧪 Test your connection with:"),
+		ChoiceStyle.Render("ssh -T git@github.com"),
+		"",
+		WarnStyle.Render("Note: You may see a warning about authenticity - type 'yes' to continue"),
+		"",
+		InfoStyle.Render("💡 Tip: Run the GitHub Authentication menu again to test the connection after adding the key"),
+	}
+	
+	return m, tea.ClearScreen
+}
+
+func (m Model) handleGitHubEmailInput() (tea.Model, tea.Cmd) {
+	// Validate email format (basic validation)
+	email := strings.TrimSpace(m.InputValue)
+	if email == "" || !strings.Contains(email, "@") {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render("❌ Please enter a valid email address")}
+		return m, tea.ClearScreen
+	}
+	
+	// Store email and ask for passphrase
+	m.FormData["githubEmail"] = email
+	return m.startInput("Enter SSH key passphrase (optional, press Enter to skip):", "githubPassphrase", 301)
+}
+
+func (m Model) handleGitHubPassphraseInput() (tea.Model, tea.Cmd) {
+	// Store passphrase (can be empty)
+	m.FormData["githubPassphrase"] = m.InputValue
+	return m.generateSSHKey()
+}
+
+func (m Model) generateSSHKey() (tea.Model, tea.Cmd) {
+	email := m.FormData["githubEmail"]
+	passphrase := m.FormData["githubPassphrase"]
+	
+	homeDir, _ := os.UserHomeDir()
+	sshDir := fmt.Sprintf("%s/.ssh", homeDir)
+	
+	var commands []string
+	var descriptions []string
+	
+	// Create .ssh directory if it doesn't exist
+	commands = append(commands, fmt.Sprintf("mkdir -p %s", sshDir))
+	descriptions = append(descriptions, "Creating SSH directory...")
+	
+	// Generate SSH key
+	keygenCmd := fmt.Sprintf("ssh-keygen -t ed25519 -C \"%s\" -f %s/id_ed25519", email, sshDir)
+	if passphrase != "" {
+		keygenCmd += fmt.Sprintf(" -N \"%s\"", passphrase)
+	} else {
+		keygenCmd += " -N \"\""
+	}
+	commands = append(commands, keygenCmd)
+	descriptions = append(descriptions, "Generating SSH key...")
+	
+	// Set proper permissions
+	commands = append(commands, fmt.Sprintf("chmod 600 %s/id_ed25519", sshDir))
+	descriptions = append(descriptions, "Setting private key permissions...")
+	commands = append(commands, fmt.Sprintf("chmod 644 %s/id_ed25519.pub", sshDir))
+	descriptions = append(descriptions, "Setting public key permissions...")
+	
+	// Start SSH agent and add key
+	if passphrase != "" {
+		commands = append(commands, "eval \"$(ssh-agent -s)\"")
+		descriptions = append(descriptions, "Starting SSH agent...")
+		commands = append(commands, fmt.Sprintf("echo \"%s\" | ssh-add %s/id_ed25519", passphrase, sshDir))
+		descriptions = append(descriptions, "Adding key to SSH agent...")
+	}
+	
+	return m.startCommandQueue(commands, descriptions, "github-ssh")
+}
+
+func (m Model) handleGitHubActionInput() (tea.Model, tea.Cmd) {
+	action := strings.ToLower(strings.TrimSpace(m.InputValue))
+	
+	switch action {
+	case "s", "show":
+		return m.showExistingSSHKey()
+	case "t", "test":
+		return m.testGitHubConnection()
+	case "r", "regenerate":
+		return m.startInput("Enter your GitHub email address:", "githubEmail", 300)
+	default:
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render("❌ Invalid option. Please enter 's' (show), 't' (test), or 'r' (regenerate)")}
+		return m, tea.ClearScreen
+	}
+}
+
+func (m Model) testGitHubConnection() (tea.Model, tea.Cmd) {
+	commands := []string{"ssh -T git@github.com"}
+	descriptions := []string{"Testing GitHub SSH connection..."}
+	
+	return m.startCommandQueue(commands, descriptions, "github-test")
+}
+
+func (m *Model) showGeneratedSSHKey() {
+	homeDir, _ := os.UserHomeDir()
+	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
+	
+	content, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		m.Report = append(m.Report, "", WarnStyle.Render(fmt.Sprintf("❌ Error reading generated SSH key: %v", err)))
+		return
+	}
+	
+	// Clear previous report and show the key with instructions
+	m.Report = []string{
+		TitleStyle.Render("🎉 SSH Key Generated Successfully!"),
+		"",
+		InfoStyle.Render("Your new SSH public key:"),
+		"",
+		ChoiceStyle.Render(string(content)),
+		"",
+		InfoStyle.Render("📋 Next steps to add this key to GitHub:"),
+		"1. Copy the key above (select and Ctrl+C)",
+		"2. Go to GitHub.com → Settings → SSH and GPG keys",
+		"3. Click 'New SSH key'",
+		"4. Paste your key and give it a title (e.g., 'My Server')",
+		"5. Click 'Add SSH key'",
+		"",
+		InfoStyle.Render("🧪 After adding to GitHub, test your connection with:"),
+		ChoiceStyle.Render("ssh -T git@github.com"),
+		"",
+		InfoStyle.Render("Expected response:"),
+		ChoiceStyle.Render("Hi [username]! You've successfully authenticated, but GitHub does not provide shell access."),
+		"",
+		WarnStyle.Render("Note: You may see a warning about authenticity - type 'yes' to continue"),
+		"",
+		InfoStyle.Render("💡 Tip: You can also test the connection from the GitHub Authentication menu"),
+	}
+}
+
+func (m *Model) showGitHubTestResults() {
+	// The test results should already be in the report from the command execution
+	// We just need to interpret them and add helpful information
+	
+	// Check if the test was successful by looking for the success message
+	if len(m.Report) > 0 {
+		for _, line := range m.Report {
+			if strings.Contains(line, "Hi ") && strings.Contains(line, "You've successfully authenticated") {
+				// Connection successful
+				m.Report = []string{
+					TitleStyle.Render("🎉 GitHub SSH Connection Successful!"),
+					"",
+					InfoStyle.Render("✅ Your SSH key is properly configured"),
+					InfoStyle.Render("✅ GitHub authentication is working"),
+					"",
+					InfoStyle.Render("Connection test output:"),
+					ChoiceStyle.Render(line),
+					"",
+					InfoStyle.Render("🚀 You're ready to:"),
+					"• Clone private repositories with SSH URLs",
+					"• Push to repositories you have access to",
+					"• Use git commands without password prompts",
+					"",
+					InfoStyle.Render("Example usage:"),
+					ChoiceStyle.Render("git clone git@github.com:username/repository.git"),
+				}
+				return
+			}
+		}
+	}
+	
+	// Connection failed or other issue
+	m.Report = append(m.Report, "",
+		WarnStyle.Render("❌ GitHub SSH connection test failed"),
+		"",
+		InfoStyle.Render("Common solutions:"),
+		"1. Make sure you've added your SSH key to GitHub",
+		"2. Check if your SSH agent is running: ssh-add -l",
+		"3. Try accepting GitHub's fingerprint: ssh -T git@github.com",
+		"4. Verify your SSH key: cat ~/.ssh/id_ed25519.pub",
+		"",
+		InfoStyle.Render("If you see 'Permission denied', your key isn't added to GitHub yet"),
+		InfoStyle.Render("If you see 'Host key verification failed', type 'yes' when prompted"),
+	)
 }
