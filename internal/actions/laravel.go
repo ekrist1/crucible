@@ -23,10 +23,10 @@ type UpdateSiteConfig struct {
 
 // QueueWorkerConfig contains configuration for setting up Laravel queue worker
 type QueueWorkerConfig struct {
-	SiteName       string
-	Connection     string
-	Processes      string
-	QueueName      string
+	SiteName   string
+	Connection string
+	Processes  string
+	QueueName  string
 }
 
 // CreateLaravelSite returns the commands and descriptions for creating a Laravel site
@@ -68,7 +68,20 @@ func CreateLaravelSite(config LaravelSiteConfig) ([]string, []string) {
 
 	// 6. Create Caddy site configuration
 	caddyConfig := fmt.Sprintf(`%s {
-    import laravel-app %s
+    root * %s/public
+    php_fastcgi 127.0.0.1:9000
+    encode gzip
+    
+    # Laravel specific rewrite rules
+    try_files {path} {path}/ /index.php?{query}
+    
+    # Security headers
+    header {
+        Strict-Transport-Security max-age=31536000;
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+    }
 }`, config.Domain, sitePath)
 	caddyConfigPath := fmt.Sprintf("/etc/caddy/sites/%s.caddy", config.Domain)
 	// Use a 'heredoc' to safely write the multi-line config to a file
@@ -76,9 +89,23 @@ func CreateLaravelSite(config LaravelSiteConfig) ([]string, []string) {
 	commands = append(commands, writeConfigCmd)
 	descriptions = append(descriptions, "Creating Caddy site configuration...")
 
-	// 7. Reload Caddy
-	commands = append(commands, "sudo systemctl reload caddy")
-	descriptions = append(descriptions, "Reloading Caddy server...")
+	// 6b. Ensure main Caddyfile imports site configs
+	commands = append(commands, "sudo bash -c 'grep -q \"import sites/\\*\" /etc/caddy/Caddyfile 2>/dev/null || echo \"import sites/*\" >> /etc/caddy/Caddyfile'")
+	descriptions = append(descriptions, "Updating main Caddyfile...")
+
+	// 7. Ensure PHP-FPM is running
+	commands = append(commands, "sudo systemctl start php*-fpm || sudo systemctl start php-fpm || true")
+	descriptions = append(descriptions, "Starting PHP-FPM service...")
+	commands = append(commands, "sudo systemctl enable php*-fpm || sudo systemctl enable php-fpm || true")
+	descriptions = append(descriptions, "Enabling PHP-FPM service...")
+
+	// 8. Start and reload Caddy (ensure it's running first)
+	commands = append(commands, "sudo systemctl start caddy || true")
+	descriptions = append(descriptions, "Starting Caddy server...")
+	commands = append(commands, "sudo systemctl enable caddy || true")
+	descriptions = append(descriptions, "Enabling Caddy service...")
+	commands = append(commands, "sudo systemctl reload caddy || sudo systemctl restart caddy")
+	descriptions = append(descriptions, "Reloading Caddy configuration...")
 
 	return commands, descriptions
 }

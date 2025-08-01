@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"crucible/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {

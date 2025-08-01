@@ -1,8 +1,8 @@
 package services
 
 import (
-	"fmt"
 	"crucible/internal/system"
+	"fmt"
 )
 
 // InstallPHP returns commands for installing PHP 8.4
@@ -244,7 +244,7 @@ func InstallCaddy() ([]string, []string, error) {
 			"curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list",
 			"sudo apt update",
 			"sudo apt install -y caddy",
-			"sudo systemctl enable caddy",
+			"sudo systemctl enable --now caddy",
 		}
 		descriptions = []string{
 			"Installing prerequisites...",
@@ -259,7 +259,7 @@ func InstallCaddy() ([]string, []string, error) {
 			"sudo dnf install -y 'dnf-command(copr)'",
 			"sudo dnf copr enable @caddy/caddy -y",
 			"sudo dnf install -y caddy",
-			"sudo systemctl enable caddy",
+			"sudo systemctl enable --now caddy",
 		}
 		descriptions = []string{
 			"Installing COPR plugin...",

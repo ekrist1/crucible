@@ -7,14 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
-	
-	"crucible/internal/services"
-	"crucible/internal/logging"
+
 	"crucible/internal/actions"
+	"crucible/internal/logging"
+	"crucible/internal/services"
 )
 
 type AppState int
@@ -25,6 +27,7 @@ const (
 	StateInput
 	StateProcessing
 	StateLogViewer
+	StateServiceList
 )
 
 type MenuLevel int
@@ -55,6 +58,24 @@ type CmdQueueMsg struct {
 	CurrentIndex int
 }
 
+// ServiceItem represents a service in the list
+type ServiceItem struct {
+	ServiceInfo actions.ServiceInfo
+}
+
+// Implement list.Item interface
+func (i ServiceItem) FilterValue() string { return i.ServiceInfo.Name }
+func (i ServiceItem) Title() string       { return i.ServiceInfo.Name }
+func (i ServiceItem) Description() string {
+	status := "●"
+	if i.ServiceInfo.Active == "active" {
+		status = "🟢"
+	} else {
+		status = "🔴"
+	}
+	return fmt.Sprintf("%s %s - %s", status, i.ServiceInfo.Status, i.ServiceInfo.Sub)
+}
+
 type Model struct {
 	Choices       []string
 	Cursor        int
@@ -79,6 +100,10 @@ type Model struct {
 	DescriptionQueue []string // Descriptions for each command
 	QueueIndex       int      // Current command index
 	QueueServiceName string   // Service name for queue
+	// Service list state
+	ServiceList list.Model            // Service management list
+	Services    []actions.ServiceInfo // Parsed services
+	ReturnToServiceList bool          // Flag to return to service list instead of main menu
 }
 
 var (
@@ -165,6 +190,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProcessing(msg)
 	case StateLogViewer:
 		return m.updateLogViewer(msg)
+	case StateServiceList:
+		return m.updateServiceList(msg)
 	}
 	return m, nil
 }
@@ -243,6 +270,7 @@ func (m Model) enterSubmenu() (tea.Model, tea.Cmd) {
 			"Backup MySQL Database",
 			"System Status",
 			"View Installation Logs",
+			"Service Management",
 			"Back to Main Menu",
 		}
 		m.Cursor = 0
@@ -371,6 +399,9 @@ func (m Model) handleServerManagementSelection() (tea.Model, tea.Cmd) {
 	case 2: // View Installation Logs
 		newModel, cmd := m.showInstallationLogs()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	case 3: // Service Management
+		newModel, cmd := m.showServiceManagement()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
 	return m, nil
 }
@@ -412,6 +443,20 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q", "enter", " ":
 			// Only allow exit if processing is complete (no processingMsg)
 			if m.ProcessingMsg == "" {
+				// Special case: if we're showing service list, start interactive control
+				if m.QueueServiceName == "list-services" {
+					m.QueueServiceName = "" // Clear the service name
+					return m.controlServiceInteractive()
+				}
+
+				// Special case: if we need to return to service list
+				if m.ReturnToServiceList {
+					m.ReturnToServiceList = false // Clear the flag
+					m.State = StateServiceList
+					m.Report = []string{} // Clear report
+					return m, tea.ClearScreen
+				}
+
 				// Return to main menu after processing and refresh service status
 				m.State = StateMenu
 				m.CurrentMenu = MenuMain
@@ -481,6 +526,26 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if serviceName == "github-test" {
 				// Show GitHub connection test results
 				modelPtr.showGitHubTestResults()
+			} else if serviceName == "list-services" {
+				// Parse services and create list
+				services := actions.ParseServiceList(msg.Result.Output)
+				modelPtr.createServiceList(services)
+				modelPtr.State = StateServiceList
+				return *modelPtr, tea.ClearScreen
+			} else if strings.HasPrefix(serviceName, "service-status-") {
+				// Service status command completed - show results and return to service list
+				serviceNameOnly := strings.TrimPrefix(serviceName, "service-status-")
+				modelPtr.showServiceStatusResults(serviceNameOnly, msg.Result.Output)
+				return *modelPtr, tea.ClearScreen
+			} else if strings.HasPrefix(serviceName, "service-") && (strings.Contains(serviceName, "-restart") || strings.Contains(serviceName, "-stop") || strings.Contains(serviceName, "-start")) {
+				// Service action command completed - show results and return to service list
+				parts := strings.Split(serviceName, "-")
+				if len(parts) >= 3 {
+					serviceNameOnly := strings.Join(parts[1:len(parts)-1], "-") // Remove "service-" prefix and "-action" suffix
+					action := parts[len(parts)-1]
+					modelPtr.showServiceActionResults(serviceNameOnly, action, msg.Result.Output)
+				}
+				return *modelPtr, tea.ClearScreen
 			}
 
 			modelPtr.refreshServiceStatus(serviceName)
@@ -521,6 +586,8 @@ func (m Model) processFormInput() (tea.Model, tea.Cmd) {
 		return m.handleGitHubPassphraseInput()
 	case 302: // GitHub Authentication - Action selection
 		return m.handleGitHubActionInput()
+	case 400: // Service Control
+		return m.handleServiceControlInput()
 	}
 
 	// Default: return to menu
@@ -620,6 +687,8 @@ func (m Model) View() string {
 		return m.viewProcessing()
 	case StateLogViewer:
 		return m.viewLogViewer()
+	case StateServiceList:
+		return m.viewServiceList()
 	}
 	return ""
 }
@@ -702,13 +771,13 @@ func (m Model) viewSubmenu() string {
 func (m Model) viewInput() string {
 	s := TitleStyle.Render("🔧 Crucible - Laravel Server Setup") + "\n\n"
 	s += PromptStyle.Render(m.InputPrompt) + "\n\n"
-	
+
 	// Hide password input
 	displayValue := m.InputValue
 	if m.InputField == "mysqlRootPassword" || m.InputField == "githubPassphrase" {
 		displayValue = strings.Repeat("*", len(m.InputValue))
 	}
-	
+
 	s += InputStyle.Render(displayValue+"│") + "\n\n"
 	s += "Press Enter to continue, Esc to cancel\n"
 	return s
@@ -907,20 +976,20 @@ func (m *Model) setupCaddyLaravelConfig() {
 func (m Model) getServiceStatus(name, command string, args ...string) string {
 	cmd := exec.Command(command, args...)
 	output, err := cmd.Output()
-	
+
 	if err != nil {
 		return WarnStyle.Render(fmt.Sprintf("❌ %s: Not installed", name))
 	}
-	
+
 	// Extract version from output (first line usually contains version info)
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	version := lines[0]
-	
+
 	// Clean up version string
 	if len(version) > 60 {
 		version = version[:60] + "..."
 	}
-	
+
 	return InfoStyle.Render(fmt.Sprintf("✅ %s: %s", name, version))
 }
 
@@ -928,16 +997,16 @@ func (m Model) getServiceStatus(name, command string, args ...string) string {
 func (m Model) getSystemServiceStatus(name, service string) string {
 	cmd := exec.Command("systemctl", "is-active", service)
 	output, err := cmd.Output()
-	
+
 	if err != nil {
 		return WarnStyle.Render(fmt.Sprintf("❌ %s: Service not found or not running", name))
 	}
-	
+
 	status := strings.TrimSpace(string(output))
 	if status == "active" {
 		return InfoStyle.Render(fmt.Sprintf("✅ %s: Running", name))
 	}
-	
+
 	return WarnStyle.Render(fmt.Sprintf("⚠️ %s: %s", name, status))
 }
 
@@ -945,24 +1014,24 @@ func (m Model) getSystemServiceStatus(name, service string) string {
 func (m Model) getDiskUsage() string {
 	cmd := exec.Command("df", "-h", "/")
 	output, err := cmd.Output()
-	
+
 	if err != nil {
 		return WarnStyle.Render("❌ Disk Usage: Unable to retrieve")
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
 		return WarnStyle.Render("❌ Disk Usage: Unable to parse")
 	}
-	
+
 	// Parse the df output (skip header)
 	fields := strings.Fields(lines[1])
 	if len(fields) >= 5 {
-		used := fields[4] // Usage percentage
+		used := fields[4]      // Usage percentage
 		available := fields[3] // Available space
 		return InfoStyle.Render(fmt.Sprintf("💾 Disk Usage: %s used, %s available", used, available))
 	}
-	
+
 	return WarnStyle.Render("❌ Disk Usage: Unable to parse")
 }
 
@@ -970,16 +1039,16 @@ func (m Model) getDiskUsage() string {
 func (m Model) getMemoryUsage() string {
 	cmd := exec.Command("free", "-h")
 	output, err := cmd.Output()
-	
+
 	if err != nil {
 		return WarnStyle.Render("❌ Memory Usage: Unable to retrieve")
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
 		return WarnStyle.Render("❌ Memory Usage: Unable to parse")
 	}
-	
+
 	// Parse the free output (get memory line)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Mem:") {
@@ -991,7 +1060,7 @@ func (m Model) getMemoryUsage() string {
 			}
 		}
 	}
-	
+
 	return WarnStyle.Render("❌ Memory Usage: Unable to parse")
 }
 
@@ -1100,11 +1169,11 @@ func (m Model) showSystemStatus() (tea.Model, tea.Cmd) {
 	m.State = StateProcessing
 	m.Report = []string{}
 	m.ProcessingMsg = ""
-	
+
 	// Build system status report
 	m.Report = append(m.Report, TitleStyle.Render("=== SYSTEM STATUS ==="))
 	m.Report = append(m.Report, "")
-	
+
 	// Check service statuses
 	m.Report = append(m.Report, InfoStyle.Render("📦 Service Status:"))
 	m.Report = append(m.Report, m.getServiceStatus("PHP", "php", "--version"))
@@ -1115,19 +1184,19 @@ func (m Model) showSystemStatus() (tea.Model, tea.Cmd) {
 	m.Report = append(m.Report, m.getServiceStatus("Git", "git", "--version"))
 	m.Report = append(m.Report, m.getServiceStatus("Caddy", "caddy", "version"))
 	m.Report = append(m.Report, "")
-	
+
 	// Check system services
 	m.Report = append(m.Report, InfoStyle.Render("⚙️ System Services:"))
 	m.Report = append(m.Report, m.getSystemServiceStatus("MySQL", "mysql"))
 	m.Report = append(m.Report, m.getSystemServiceStatus("Caddy", "caddy"))
 	m.Report = append(m.Report, m.getSystemServiceStatus("Supervisor", "supervisor"))
 	m.Report = append(m.Report, "")
-	
+
 	// System resources
 	m.Report = append(m.Report, InfoStyle.Render("💾 System Resources:"))
 	m.Report = append(m.Report, m.getDiskUsage())
 	m.Report = append(m.Report, m.getMemoryUsage())
-	
+
 	return m, tea.ClearScreen
 }
 
@@ -1135,11 +1204,11 @@ func (m Model) showInstallationLogs() (tea.Model, tea.Cmd) {
 	// Use the logger to read log lines if available
 	var logLines []string
 	var err error
-	
+
 	if m.Logger != nil {
 		logLines, err = m.Logger.ReadLogLines()
 	}
-	
+
 	if err != nil || len(logLines) == 0 {
 		// No log file found or error reading, show empty state
 		m.State = StateLogViewer
@@ -1162,17 +1231,17 @@ func (m Model) showInstallationLogs() (tea.Model, tea.Cmd) {
 		m.LogScroll = 0
 		return m, tea.ClearScreen
 	}
-	
+
 	// Set up log viewer state
 	m.State = StateLogViewer
 	m.LogLines = logLines
 	m.LogScroll = 0
-	
+
 	// If there are many lines, start at the bottom
 	if len(logLines) > 18 {
 		m.LogScroll = len(logLines) - 18
 	}
-	
+
 	return m, tea.ClearScreen
 }
 
@@ -1205,7 +1274,7 @@ func (m Model) handleMySQLInstallForm() (tea.Model, tea.Cmd) {
 		m.Report = []string{WarnStyle.Render("❌ MySQL root password must be at least 8 characters long")}
 		return m, tea.ClearScreen
 	}
-	
+
 	// Store password and proceed with installation
 	m.FormData["mysqlRootPassword"] = m.InputValue
 	return m.installMySQLWithPassword()
@@ -1220,13 +1289,13 @@ func (m Model) handleGitHubAuth() (tea.Model, tea.Cmd) {
 		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error getting home directory: %v", err))}
 		return m, tea.ClearScreen
 	}
-	
+
 	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
 	if _, err := os.Stat(pubKeyPath); err == nil {
 		// SSH key exists, ask user what they want to do
 		return m.startInput("SSH key exists. Options: [s]how key, [t]est connection, [r]egenerate:", "githubAction", 302)
 	}
-	
+
 	// SSH key doesn't exist, ask for email to generate one
 	return m.startInput("Enter your GitHub email address:", "githubEmail", 300)
 }
@@ -1234,7 +1303,7 @@ func (m Model) handleGitHubAuth() (tea.Model, tea.Cmd) {
 func (m Model) showExistingSSHKey() (tea.Model, tea.Cmd) {
 	homeDir, _ := os.UserHomeDir()
 	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
-	
+
 	content, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		m.State = StateProcessing
@@ -1242,7 +1311,7 @@ func (m Model) showExistingSSHKey() (tea.Model, tea.Cmd) {
 		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error reading SSH key: %v", err))}
 		return m, tea.ClearScreen
 	}
-	
+
 	m.State = StateProcessing
 	m.ProcessingMsg = ""
 	m.Report = []string{
@@ -1266,7 +1335,7 @@ func (m Model) showExistingSSHKey() (tea.Model, tea.Cmd) {
 		"",
 		InfoStyle.Render("💡 Tip: Run the GitHub Authentication menu again to test the connection after adding the key"),
 	}
-	
+
 	return m, tea.ClearScreen
 }
 
@@ -1279,7 +1348,7 @@ func (m Model) handleGitHubEmailInput() (tea.Model, tea.Cmd) {
 		m.Report = []string{WarnStyle.Render("❌ Please enter a valid email address")}
 		return m, tea.ClearScreen
 	}
-	
+
 	// Store email and ask for passphrase
 	m.FormData["githubEmail"] = email
 	return m.startInput("Enter SSH key passphrase (optional, press Enter to skip):", "githubPassphrase", 301)
@@ -1294,21 +1363,21 @@ func (m Model) handleGitHubPassphraseInput() (tea.Model, tea.Cmd) {
 func (m Model) generateSSHKey() (tea.Model, tea.Cmd) {
 	email := m.FormData["githubEmail"]
 	passphrase := m.FormData["githubPassphrase"]
-	
+
 	homeDir, _ := os.UserHomeDir()
 	sshDir := fmt.Sprintf("%s/.ssh", homeDir)
-	
+
 	var commands []string
 	var descriptions []string
-	
+
 	// Create .ssh directory if it doesn't exist
 	commands = append(commands, fmt.Sprintf("mkdir -p %s", sshDir))
 	descriptions = append(descriptions, "Creating SSH directory...")
-	
+
 	// Remove existing key files first to avoid prompts
 	commands = append(commands, fmt.Sprintf("rm -f %s/id_ed25519 %s/id_ed25519.pub", sshDir, sshDir))
 	descriptions = append(descriptions, "Removing existing SSH keys...")
-	
+
 	// Generate SSH key
 	keygenCmd := fmt.Sprintf("ssh-keygen -t ed25519 -C \"%s\" -f %s/id_ed25519", email, sshDir)
 	if passphrase != "" {
@@ -1318,22 +1387,22 @@ func (m Model) generateSSHKey() (tea.Model, tea.Cmd) {
 	}
 	commands = append(commands, keygenCmd)
 	descriptions = append(descriptions, "Generating SSH key...")
-	
+
 	// Set proper permissions
 	commands = append(commands, fmt.Sprintf("chmod 600 %s/id_ed25519", sshDir))
 	descriptions = append(descriptions, "Setting private key permissions...")
 	commands = append(commands, fmt.Sprintf("chmod 644 %s/id_ed25519.pub", sshDir))
 	descriptions = append(descriptions, "Setting public key permissions...")
-	
+
 	// Note: We skip SSH agent setup here as it's complex in automated scripts
 	// The user will be instructed how to add the key manually if needed
-	
+
 	return m.startCommandQueue(commands, descriptions, "github-ssh")
 }
 
 func (m Model) handleGitHubActionInput() (tea.Model, tea.Cmd) {
 	action := strings.ToLower(strings.TrimSpace(m.InputValue))
-	
+
 	switch action {
 	case "s", "show":
 		return m.showExistingSSHKey()
@@ -1354,31 +1423,31 @@ func (m Model) testGitHubConnection() (tea.Model, tea.Cmd) {
 	// Add timeout and better error handling for SSH test
 	commands := []string{"timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes -T git@github.com"}
 	descriptions := []string{"Testing GitHub SSH connection..."}
-	
+
 	return m.startCommandQueue(commands, descriptions, "github-test")
 }
 
 func (m *Model) showGeneratedSSHKey() {
 	homeDir, _ := os.UserHomeDir()
 	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
-	
+
 	content, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		m.Report = append(m.Report, "", WarnStyle.Render(fmt.Sprintf("❌ Error reading generated SSH key: %v", err)))
 		return
 	}
-	
+
 	// Check if a passphrase was used
 	passphrase := m.FormData["githubPassphrase"]
-	
-	// Clear previous report and show the key with instructions  
+
+	// Clear previous report and show the key with instructions
 	// Check if this was a regeneration or new generation
 	isRegeneration := m.FormData["githubAction"] == "r" || m.FormData["githubAction"] == "regenerate"
 	title := "🎉 SSH Key Generated Successfully!"
 	if isRegeneration {
 		title = "🔄 SSH Key Regenerated Successfully!"
 	}
-	
+
 	m.Report = []string{
 		TitleStyle.Render(title),
 		"",
@@ -1387,7 +1456,7 @@ func (m *Model) showGeneratedSSHKey() {
 		ChoiceStyle.Render(string(content)),
 		"",
 	}
-	
+
 	// Add SSH agent instructions if passphrase was used
 	if passphrase != "" {
 		m.Report = append(m.Report,
@@ -1398,7 +1467,7 @@ func (m *Model) showGeneratedSSHKey() {
 			"",
 		)
 	}
-	
+
 	steps := "📋 Next steps to add this key to GitHub:"
 	if isRegeneration {
 		steps = "📋 Next steps to update this key on GitHub:"
@@ -1407,17 +1476,17 @@ func (m *Model) showGeneratedSSHKey() {
 			"",
 		)
 	}
-	
+
 	m.Report = append(m.Report,
 		InfoStyle.Render(steps),
 		"1. Copy the key above (select and Ctrl+C)",
 		"2. Go to GitHub.com → Settings → SSH and GPG keys",
 	)
-	
+
 	if isRegeneration {
 		m.Report = append(m.Report,
 			"3. Find your old key and click 'Delete'",
-			"4. Click 'New SSH key'", 
+			"4. Click 'New SSH key'",
 			"5. Paste your new key and give it a title (e.g., 'My Server')",
 			"6. Click 'Add SSH key'",
 		)
@@ -1428,7 +1497,7 @@ func (m *Model) showGeneratedSSHKey() {
 			"5. Click 'Add SSH key'",
 		)
 	}
-	
+
 	m.Report = append(m.Report,
 		"",
 		InfoStyle.Render("🧪 After adding to GitHub, test your connection with:"),
@@ -1446,7 +1515,7 @@ func (m *Model) showGeneratedSSHKey() {
 func (m *Model) showGitHubTestResults() {
 	// The test results should already be in the report from the command execution
 	// We just need to interpret them and add helpful information
-	
+
 	// Check if the test was successful by looking for the success message
 	if len(m.Report) > 0 {
 		for _, line := range m.Report {
@@ -1473,7 +1542,7 @@ func (m *Model) showGitHubTestResults() {
 			}
 		}
 	}
-	
+
 	// Connection failed or other issue
 	homeDir, _ := os.UserHomeDir()
 	m.Report = append(m.Report, "",
@@ -1508,7 +1577,7 @@ func (m Model) showLaravelSiteList() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	}
-	
+
 	if len(sites) == 0 {
 		m.State = StateProcessing
 		m.ProcessingMsg = ""
@@ -1519,7 +1588,7 @@ func (m Model) showLaravelSiteList() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	}
-	
+
 	// Build the report showing available sites
 	m.State = StateProcessing
 	m.ProcessingMsg = ""
@@ -1529,7 +1598,7 @@ func (m Model) showLaravelSiteList() (tea.Model, tea.Cmd) {
 		InfoStyle.Render("Found the following Laravel sites in /var/www:"),
 		"",
 	}
-	
+
 	for i, site := range sites {
 		sitePath := fmt.Sprintf("/var/www/%s", site)
 		// Check if it's a git repository
@@ -1537,23 +1606,23 @@ func (m Model) showLaravelSiteList() (tea.Model, tea.Cmd) {
 		if _, err := os.Stat(fmt.Sprintf("%s/.git", sitePath)); err == nil {
 			gitStatus = "📦 Git repository"
 		}
-		
-		m.Report = append(m.Report, 
+
+		m.Report = append(m.Report,
 			InfoStyle.Render(fmt.Sprintf("%d. %s", i+1, site)),
 			ChoiceStyle.Render(fmt.Sprintf("   Path: %s", sitePath)),
 			ChoiceStyle.Render(fmt.Sprintf("   Type: %s", gitStatus)),
 			"",
 		)
 	}
-	
+
 	// Store sites for later use and ask for selection
 	m.FormData["availableSites"] = fmt.Sprintf("%v", sites) // Convert to string for storage
-	
+
 	m.Report = append(m.Report,
 		InfoStyle.Render("Select a site to update:"),
 	)
-	
-	newModel, cmd := m.startInput("Enter site number (1-" + fmt.Sprintf("%d", len(sites)) + "):", "siteIndex", 101)
+
+	newModel, cmd := m.startInput("Enter site number (1-"+fmt.Sprintf("%d", len(sites))+"):", "siteIndex", 101)
 	return newModel, cmd
 }
 
@@ -1570,7 +1639,7 @@ func (m Model) showLaravelSiteListForQueue() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	}
-	
+
 	if len(sites) == 0 {
 		m.State = StateProcessing
 		m.ProcessingMsg = ""
@@ -1581,7 +1650,7 @@ func (m Model) showLaravelSiteListForQueue() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 	}
-	
+
 	// Build the report showing available sites
 	m.State = StateProcessing
 	m.ProcessingMsg = ""
@@ -1591,20 +1660,410 @@ func (m Model) showLaravelSiteListForQueue() (tea.Model, tea.Cmd) {
 		InfoStyle.Render("Select a Laravel site to setup queue worker for:"),
 		"",
 	}
-	
+
 	for i, site := range sites {
 		sitePath := fmt.Sprintf("/var/www/%s", site)
-		m.Report = append(m.Report, 
+		m.Report = append(m.Report,
 			InfoStyle.Render(fmt.Sprintf("%d. %s", i+1, site)),
 			ChoiceStyle.Render(fmt.Sprintf("   Path: %s", sitePath)),
 			"",
 		)
 	}
-	
+
 	m.Report = append(m.Report,
 		InfoStyle.Render("Select a site for queue worker setup:"),
 	)
-	
-	newModel, cmd := m.startInput("Enter site number (1-" + fmt.Sprintf("%d", len(sites)) + "):", "queueSiteIndex", 102)
+
+	newModel, cmd := m.startInput("Enter site number (1-"+fmt.Sprintf("%d", len(sites))+"):", "queueSiteIndex", 102)
 	return newModel, cmd
+}
+
+// showServiceManagement displays the service management interface
+func (m Model) showServiceManagement() (tea.Model, tea.Cmd) {
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.Report = []string{}
+
+	// Get list of active services
+	commands, descriptions := actions.ListActiveServices()
+
+	// Execute the command to get active services
+	return m.startCommandQueue(commands, descriptions, "list-services")
+}
+
+// showServiceList displays the parsed service list and management options
+func (m *Model) showServiceList(output string) {
+	// Parse the service list output
+	services := actions.ParseServiceList(output)
+
+	m.Report = []string{
+		TitleStyle.Render("⚙️ Service Management"),
+		"",
+		InfoStyle.Render("🟢 Active Services:"),
+		"",
+	}
+
+	if len(services) == 0 {
+		m.Report = append(m.Report, WarnStyle.Render("No active services found"))
+	} else {
+		// Show first 15 services to avoid cluttering
+		maxServices := len(services)
+		if maxServices > 15 {
+			maxServices = 15
+		}
+
+		for i := 0; i < maxServices; i++ {
+			service := services[i]
+			status := "●"
+			if service.Active == "active" {
+				status = InfoStyle.Render("● ")
+			} else {
+				status = WarnStyle.Render("● ")
+			}
+
+			m.Report = append(m.Report,
+				fmt.Sprintf("%s%s (%s - %s)", status, service.Name, service.Status, service.Sub),
+			)
+		}
+
+		if len(services) > 15 {
+			m.Report = append(m.Report, "",
+				ChoiceStyle.Render(fmt.Sprintf("... and %d more services", len(services)-15)),
+			)
+		}
+	}
+
+	m.Report = append(m.Report, "",
+		InfoStyle.Render("Service Management Options:"),
+		"",
+		InfoStyle.Render("1. Control a specific service (start/stop/restart/reload)"),
+		InfoStyle.Render("2. View detailed service status"),
+		InfoStyle.Render("3. Enable/disable service at boot"),
+		"",
+		ChoiceStyle.Render("Command format:"),
+		ChoiceStyle.Render("  c <service-name> <action>  - Control service"),
+		ChoiceStyle.Render("  s <service-name>           - Show service status"),
+		"",
+		ChoiceStyle.Render("Examples: 'c caddy restart', 'c mysql stop', 's php8.4-fpm'"),
+		ChoiceStyle.Render("Actions: start, stop, restart, reload, enable, disable, status"),
+		"",
+		InfoStyle.Render("Press Enter to start interactive service management..."),
+	)
+}
+
+// controlServiceInteractive starts an interactive service control session
+func (m Model) controlServiceInteractive() (tea.Model, tea.Cmd) {
+	return m.startInput("Enter service control command (format: 'c service-name action' or 's service-name'):", "serviceControl", 400)
+}
+
+// handleServiceControlInput processes service control commands
+func (m Model) handleServiceControlInput() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(m.InputValue)
+	if input == "" {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render("❌ Command cannot be empty")}
+		return m, tea.ClearScreen
+	}
+
+	parts := strings.Fields(input)
+	if len(parts) < 2 {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render("❌ Invalid command format"),
+			"",
+			InfoStyle.Render("Usage:"),
+			ChoiceStyle.Render("  c <service-name> <action>  - Control service"),
+			ChoiceStyle.Render("  s <service-name>           - Show service status"),
+			"",
+			InfoStyle.Render("Examples:"),
+			ChoiceStyle.Render("  c caddy restart"),
+			ChoiceStyle.Render("  c mysql stop"),
+			ChoiceStyle.Render("  s php8.4-fpm"),
+			"",
+			InfoStyle.Render("Actions: start, stop, restart, reload, enable, disable, status"),
+		}
+		return m, tea.ClearScreen
+	}
+
+	command := parts[0]
+	serviceName := parts[1]
+
+	switch command {
+	case "c": // Control service
+		if len(parts) < 3 {
+			m.State = StateProcessing
+			m.ProcessingMsg = ""
+			m.Report = []string{
+				WarnStyle.Render("❌ Missing action for control command"),
+				"",
+				InfoStyle.Render("Usage: c <service-name> <action>"),
+				InfoStyle.Render("Actions: start, stop, restart, reload, enable, disable, status"),
+			}
+			return m, tea.ClearScreen
+		}
+
+		action := parts[2]
+		config := actions.ServiceActionConfig{
+			ServiceName: serviceName,
+			Action:      action,
+		}
+
+		commands, descriptions, err := actions.ControlService(config)
+		if err != nil {
+			m.State = StateProcessing
+			m.ProcessingMsg = ""
+			m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+			return m, tea.ClearScreen
+		}
+
+		return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-%s", serviceName, action))
+
+	case "s": // Show service status
+		commands, descriptions := actions.GetServiceStatus(serviceName)
+		return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-status-%s", serviceName))
+
+	default:
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render(fmt.Sprintf("❌ Unknown command: %s", command)),
+			"",
+			InfoStyle.Render("Available commands:"),
+			ChoiceStyle.Render("  c - Control service (start, stop, restart, etc.)"),
+			ChoiceStyle.Render("  s - Show service status"),
+		}
+		return m, tea.ClearScreen
+	}
+}
+
+// updateServiceList handles input in service list state
+func (m Model) updateServiceList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Update list dimensions to fit the terminal
+		m.ServiceList.SetWidth(msg.Width)
+		m.ServiceList.SetHeight(msg.Height - 4) // Reserve space for title and help
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
+			// Return to Server Management menu
+			return m.returnToServerManagement()
+		case "enter":
+			// Get selected service and show action menu
+			if selectedItem, ok := m.ServiceList.SelectedItem().(ServiceItem); ok {
+				return m.showServiceActions(selectedItem.ServiceInfo)
+			}
+		case "s":
+			// Show service status
+			if selectedItem, ok := m.ServiceList.SelectedItem().(ServiceItem); ok {
+				commands, descriptions := actions.GetServiceStatus(selectedItem.ServiceInfo.Name)
+				return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-status-%s", selectedItem.ServiceInfo.Name))
+			}
+		case "r":
+			// Restart service
+			if selectedItem, ok := m.ServiceList.SelectedItem().(ServiceItem); ok {
+				config := actions.ServiceActionConfig{
+					ServiceName: selectedItem.ServiceInfo.Name,
+					Action:      "restart",
+				}
+				commands, descriptions, err := actions.ControlService(config)
+				if err != nil {
+					m.State = StateProcessing
+					m.ProcessingMsg = ""
+					m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+					return m, tea.ClearScreen
+				}
+				return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-restart", selectedItem.ServiceInfo.Name))
+			}
+		case "t":
+			// Stop service
+			if selectedItem, ok := m.ServiceList.SelectedItem().(ServiceItem); ok {
+				config := actions.ServiceActionConfig{
+					ServiceName: selectedItem.ServiceInfo.Name,
+					Action:      "stop",
+				}
+				commands, descriptions, err := actions.ControlService(config)
+				if err != nil {
+					m.State = StateProcessing
+					m.ProcessingMsg = ""
+					m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+					return m, tea.ClearScreen
+				}
+				return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-stop", selectedItem.ServiceInfo.Name))
+			}
+		case "a":
+			// Start service
+			if selectedItem, ok := m.ServiceList.SelectedItem().(ServiceItem); ok {
+				config := actions.ServiceActionConfig{
+					ServiceName: selectedItem.ServiceInfo.Name,
+					Action:      "start",
+				}
+				commands, descriptions, err := actions.ControlService(config)
+				if err != nil {
+					m.State = StateProcessing
+					m.ProcessingMsg = ""
+					m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+					return m, tea.ClearScreen
+				}
+				return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-start", selectedItem.ServiceInfo.Name))
+			}
+		}
+	}
+
+	// Update the list
+	var cmd tea.Cmd
+	m.ServiceList, cmd = m.ServiceList.Update(msg)
+	return m, cmd
+}
+
+// viewServiceList renders the service list
+func (m Model) viewServiceList() string {
+	return TitleStyle.Render("⚙️ Service Management") + "\n" + m.ServiceList.View()
+}
+
+// returnToServerManagement returns to the Server Management menu
+func (m Model) returnToServerManagement() (tea.Model, tea.Cmd) {
+	m.State = StateSubmenu
+	m.CurrentMenu = MenuServerManagement
+	m.Choices = []string{
+		"Backup MySQL Database",
+		"System Status",
+		"View Installation Logs",
+		"Service Management",
+		"Back to Main Menu",
+	}
+	m.Cursor = 3 // Position cursor on Service Management
+	return m, tea.ClearScreen
+}
+
+// showServiceActions shows available actions for a service
+func (m Model) showServiceActions(service actions.ServiceInfo) (tea.Model, tea.Cmd) {
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.Report = []string{
+		TitleStyle.Render(fmt.Sprintf("🔧 Service: %s", service.Name)),
+		"",
+		InfoStyle.Render(fmt.Sprintf("Status: %s", service.Status)),
+		InfoStyle.Render(fmt.Sprintf("Active: %s", service.Active)),
+		InfoStyle.Render(fmt.Sprintf("Sub-state: %s", service.Sub)),
+		"",
+		InfoStyle.Render("Available Actions:"),
+		ChoiceStyle.Render("  s - Show detailed status"),
+		ChoiceStyle.Render("  r - Restart service"),
+		ChoiceStyle.Render("  t - Stop service"),
+		ChoiceStyle.Render("  a - Start service"),
+		"",
+		InfoStyle.Render("Press the corresponding key or Esc to go back"),
+	}
+	return m, tea.ClearScreen
+}
+
+// createServiceList creates and initializes the service list
+func (m *Model) createServiceList(services []actions.ServiceInfo) {
+	// Convert services to list items
+	items := make([]list.Item, len(services))
+	for i, service := range services {
+		items[i] = ServiceItem{ServiceInfo: service}
+	}
+
+	// Create list with custom styling
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = true
+	delegate.SetHeight(2)
+
+	// Set reasonable default dimensions - will be updated in Update() with actual window size
+	listWidth := 80
+	listHeight := 20
+	m.ServiceList = list.New(items, delegate, listWidth, listHeight)
+	m.ServiceList.Title = "Active Services"
+	m.ServiceList.SetShowStatusBar(true)
+	m.ServiceList.SetShowPagination(true)
+	m.ServiceList.SetShowHelp(true)
+
+	// Add custom key bindings help
+	m.ServiceList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "show status")),
+			key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "restart")),
+			key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "stop")),
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "start")),
+		}
+	}
+
+	m.Services = services
+}
+
+// showServiceStatusResults shows the status results and returns to service list
+func (m *Model) showServiceStatusResults(serviceName, output string) {
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.ReturnToServiceList = true // Flag to return to service list
+	m.Report = []string{
+		TitleStyle.Render(fmt.Sprintf("📊 Service Status: %s", serviceName)),
+		"",
+		InfoStyle.Render("Service Status Details:"),
+		"",
+	}
+	
+	// Add the status output
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			m.Report = append(m.Report, ChoiceStyle.Render(line))
+		}
+	}
+	
+	m.Report = append(m.Report, "",
+		InfoStyle.Render("Press any key to return to service list..."),
+	)
+}
+
+// showServiceActionResults shows the action results and returns to service list
+func (m *Model) showServiceActionResults(serviceName, action, output string) {
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.ReturnToServiceList = true // Flag to return to service list
+	
+	// Determine icon based on action
+	actionIcon := "⚙️"
+	actionDesc := action
+	switch action {
+	case "start":
+		actionIcon = "▶️"
+		actionDesc = "Started"
+	case "stop":
+		actionIcon = "⏹️"
+		actionDesc = "Stopped"
+	case "restart":
+		actionIcon = "🔄"
+		actionDesc = "Restarted"
+	}
+	
+	m.Report = []string{
+		TitleStyle.Render(fmt.Sprintf("%s Service %s: %s", actionIcon, actionDesc, serviceName)),
+		"",
+		InfoStyle.Render("Command executed successfully!"),
+		"",
+	}
+	
+	// Add any output if available
+	if strings.TrimSpace(output) != "" {
+		m.Report = append(m.Report, InfoStyle.Render("Output:"))
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				m.Report = append(m.Report, ChoiceStyle.Render(line))
+			}
+		}
+		m.Report = append(m.Report, "")
+	}
+	
+	m.Report = append(m.Report,
+		InfoStyle.Render("Press any key to return to service list..."),
+	)
 }

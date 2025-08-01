@@ -52,14 +52,14 @@ func NewLogger(logFile string) (*Logger, error) {
 func (l *Logger) LogCommand(result LoggedExecResult) error {
 	// Log to stdout
 	if result.Error != nil {
-		l.Error("Command failed", 
-			"command", result.Command, 
-			"error", result.Error, 
+		l.Error("Command failed",
+			"command", result.Command,
+			"error", result.Error,
 			"exit_code", result.ExitCode,
 			"duration", result.Duration)
 	} else {
-		l.Info("Command executed successfully", 
-			"command", result.Command, 
+		l.Info("Command executed successfully",
+			"command", result.Command,
 			"duration", result.Duration)
 	}
 
@@ -90,7 +90,7 @@ OUTPUT:
 ERROR: %v
 === END LOG ENTRY ===
 
-`, 
+`,
 		time.Now().Format(time.RFC3339),
 		result.Command,
 		result.StartTime.Format(time.RFC3339),

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"crucible/internal/actions"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // parseInt converts string to int for simple cases (matches the one in actions/laravel.go)
@@ -83,7 +83,7 @@ func (m Model) HandleUpdateSiteForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		// Validate the site index
 		sites, err := actions.ListLaravelSites()
 		if err != nil {
@@ -91,7 +91,7 @@ func (m Model) HandleUpdateSiteForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		// Parse the site index
 		siteIndex := parseInt(m.InputValue)
 		if siteIndex < 1 || siteIndex > len(sites) {
@@ -99,11 +99,11 @@ func (m Model) HandleUpdateSiteForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		selectedSite := sites[siteIndex-1]
 		m.FormData["siteIndex"] = m.InputValue
 		m.FormData["selectedSite"] = selectedSite
-		
+
 		// Show confirmation before updating
 		m.State = StateProcessing
 		m.ProcessingMsg = ""
@@ -124,7 +124,7 @@ func (m Model) HandleUpdateSiteForm() (Model, tea.Cmd) {
 			"",
 			WarnStyle.Render("⚠️  Make sure you have committed and pushed your changes!"),
 		}
-		
+
 		// Start the update process after a brief display
 		newModel, cmd := m.updateLaravelSiteWithData()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
@@ -192,7 +192,7 @@ func (m Model) HandleQueueWorkerForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		// Validate the site index
 		sites, err := actions.ListLaravelSites()
 		if err != nil {
@@ -200,7 +200,7 @@ func (m Model) HandleQueueWorkerForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		// Parse the site index
 		siteIndex := parseInt(m.InputValue)
 		if siteIndex < 1 || siteIndex > len(sites) {
@@ -208,7 +208,7 @@ func (m Model) HandleQueueWorkerForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
-		
+
 		selectedSite := sites[siteIndex-1]
 		m.FormData["queueSiteName"] = selectedSite
 		return m.StartInput("Enter queue connection (default: database):", "queueConnection", 102)
@@ -285,7 +285,6 @@ func isValidGitURL(url string) bool {
 	return httpsRegex.MatchString(url) || sshRegex.MatchString(url) || httpsNoGitRegex.MatchString(url)
 }
 
-
 // Action functions - these now use the actions packages to get command sequences
 func (m Model) createLaravelSiteWithData() (Model, tea.Cmd) {
 	// Get command sequences from actions package instead of generating here
@@ -294,7 +293,7 @@ func (m Model) createLaravelSiteWithData() (Model, tea.Cmd) {
 		Domain:   m.FormData["domain"],
 		GitRepo:  m.FormData["gitRepo"],
 	}
-	
+
 	commands, descriptions := actions.CreateLaravelSite(config)
 	return m.startCommandQueue(commands, descriptions, "")
 }
@@ -340,7 +339,7 @@ func (m Model) backupMySQLWithData() (Model, tea.Cmd) {
 		RemoteHost: m.FormData["remoteHost"],
 		RemotePath: m.FormData["remotePath"],
 	}
-	
+
 	commands, descriptions := actions.BackupMySQL(config)
 	return m.startCommandQueue(commands, descriptions, "mysql-backup")
 }
@@ -352,7 +351,7 @@ func (m Model) setupQueueWorkerWithData() (Model, tea.Cmd) {
 		Processes:  m.FormData["queueProcesses"],
 		QueueName:  m.FormData["queueName"],
 	}
-	
+
 	commands, descriptions := actions.SetupQueueWorker(config)
 	return m.startCommandQueue(commands, descriptions, "queue-worker")
 }
