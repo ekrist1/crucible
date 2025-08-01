@@ -224,6 +224,38 @@ func (m model) installGit() (tea.Model, tea.Cmd) {
 	)
 }
 
+func (m model) installNode() (tea.Model, tea.Cmd) {
+	m.state = stateProcessing
+	m.processingMsg = "Installing Node.js and npm..."
+	m.report = []string{infoStyle.Render("Installing Node.js LTS with npm and essential tools")}
+
+	osType := getOSType()
+	var command string
+
+	switch osType {
+	case "ubuntu":
+		command = `curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && \
+sudo apt-get install -y nodejs && \
+sudo npm install -g npm@latest && \
+sudo npm install -g yarn pm2`
+	case "fedora":
+		command = `curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - && \
+sudo dnf install -y nodejs npm && \
+sudo npm install -g npm@latest && \
+sudo npm install -g yarn pm2`
+	default:
+		m.report = append(m.report, warnStyle.Render(fmt.Sprintf("❌ Unsupported operating system: %s", osType)))
+		m.processingMsg = ""
+		return m, nil
+	}
+
+	// Execute command asynchronously with spinner
+	return m, tea.Batch(
+		m.spinner.Tick,
+		executeCommandAsync(command, "Installing Node.js and npm", "node"),
+	)
+}
+
 func (m model) installSupervisor() (tea.Model, tea.Cmd) {
 	m.state = stateProcessing
 	m.processingMsg = "Installing Supervisor process manager..."
@@ -400,4 +432,34 @@ func getServiceEnableCommand(service string, isSystemd bool) string {
 		return fmt.Sprintf("sudo chkconfig %s on", service)
 	}
 	return "" // No enable equivalent available
+}
+
+// getWebServerUser returns the appropriate web server user based on the operating system
+func getWebServerUser() string {
+	osType := getOSType()
+	switch osType {
+	case "ubuntu":
+		return "www-data"
+	case "fedora":
+		// Check if nginx is installed, otherwise use apache
+		if _, err := exec.LookPath("nginx"); err == nil {
+			return "nginx"
+		}
+		return "apache"
+	default:
+		// Default fallback - try www-data first, then nginx, then apache
+		for _, user := range []string{"www-data", "nginx", "apache"} {
+			if userExists(user) {
+				return user
+			}
+		}
+		return "www-data" // Final fallback
+	}
+}
+
+// userExists checks if a user exists on the system
+func userExists(username string) bool {
+	cmd := exec.Command("id", username)
+	err := cmd.Run()
+	return err == nil
 }

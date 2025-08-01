@@ -137,8 +137,9 @@ func (m model) createLaravelSiteWithData() (tea.Model, tea.Cmd) {
 	}
 
 	// 3. Set ownership and permissions
-	commands = append(commands, fmt.Sprintf("sudo chown -R www-data:www-data %s", sitePath))
-	descriptions = append(descriptions, "Setting ownership...")
+	webUser := getWebServerUser()
+	commands = append(commands, fmt.Sprintf("sudo chown -R %s:%s %s", webUser, webUser, sitePath))
+	descriptions = append(descriptions, fmt.Sprintf("Setting ownership to %s...", webUser))
 	commands = append(commands, fmt.Sprintf("find %s -type d -exec chmod 755 {} + && find %s -type f -exec chmod 644 {} +", sitePath, sitePath))
 	descriptions = append(descriptions, "Setting file permissions...")
 	commands = append(commands, fmt.Sprintf("chmod -R 775 %s/storage %s/bootstrap/cache", sitePath, sitePath))
@@ -515,6 +516,7 @@ func (m model) setupQueueWorkerWithData() (tea.Model, tea.Cmd) {
 	// Generate supervisor configuration
 	workerName := fmt.Sprintf("laravel-worker-%s", siteName)
 	configPath := fmt.Sprintf("/etc/supervisor/conf.d/%s.conf", workerName)
+	webUser := getWebServerUser()
 
 	supervisorConfig := fmt.Sprintf(`[program:%s]
 process_name=%%(program_name)s_%%(process_num)02d
@@ -523,14 +525,14 @@ autostart=true
 autorestart=true
 stopasgroup=true
 killasgroup=true
-user=www-data
+user=%s
 numprocs=%s
 redirect_stderr=true
 stdout_logfile=%s/storage/logs/worker.log
 stdout_logfile_maxbytes=100MB
 stdout_logfile_backups=2
 stopwaitsecs=3600
-`, workerName, sitePath, connection, queueName, processes, sitePath)
+`, workerName, sitePath, connection, queueName, webUser, processes, sitePath)
 
 	var commands []string
 	var descriptions []string
@@ -544,8 +546,8 @@ stopwaitsecs=3600
 	descriptions = append(descriptions, "Creating log directory...")
 
 	// 3. Set proper permissions
-	commands = append(commands, fmt.Sprintf("sudo chown -R www-data:www-data %s/storage/logs", sitePath))
-	descriptions = append(descriptions, "Setting log permissions...")
+	commands = append(commands, fmt.Sprintf("sudo chown -R %s:%s %s/storage/logs", webUser, webUser, sitePath))
+	descriptions = append(descriptions, fmt.Sprintf("Setting log permissions for %s...", webUser))
 
 	// 4. Reload supervisor configuration
 	commands = append(commands, "sudo supervisorctl reread")

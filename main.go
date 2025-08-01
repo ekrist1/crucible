@@ -17,9 +17,19 @@ type appState int
 
 const (
 	stateMenu appState = iota
+	stateSubmenu
 	stateInput
 	stateProcessing
 	stateLogViewer
+)
+
+type menuLevel int
+
+const (
+	menuMain menuLevel = iota
+	menuCoreServices
+	menuLaravelManagement
+	menuServerManagement
 )
 
 // Message types for async command execution
@@ -47,6 +57,7 @@ type model struct {
 	selected      map[int]struct{}
 	logger        *log.Logger
 	state         appState
+	currentMenu   menuLevel // Track which menu we're in
 	inputPrompt   string
 	inputValue    string
 	inputField    string
@@ -107,25 +118,15 @@ func initialModel() model {
 
 	m := model{
 		choices: []string{
-			"Install PHP 8.4",
-			"Upgrade to PHP 8.5 (Alpha - unavailable)",
-			"Install PHP Composer",
-			"Install Python & pip",
-			"Install MySQL",
-			"Install Caddy Server",
-			"Install Git CLI",
-			"Install Supervisor",
-			"Create New Laravel Site",
-			"Update Laravel Site",
-			"Setup Laravel Queue Worker",
-			"Backup MySQL Database",
-			"System Status",
-			"View Installation Logs",
+			"Core Services",
+			"Laravel Management",
+			"Server Management",
 			"Exit",
 		},
 		selected:      make(map[int]struct{}),
 		logger:        logger,
 		state:         stateMenu,
+		currentMenu:   menuMain,
 		formData:      make(map[string]string),
 		serviceStatus: make(map[string]bool),
 		spinner:       s,
@@ -153,6 +154,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateMenu:
 		return m.updateMenu(msg)
+	case stateSubmenu:
+		return m.updateSubmenu(msg)
 	case stateInput:
 		return m.updateInput(msg)
 	case stateProcessing:
@@ -185,8 +188,8 @@ func (m model) updateMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
-			// Handle the selected option
-			return m.handleSelection()
+			// Handle main menu selection - enter submenu
+			return m.enterSubmenu()
 
 		case "r", "R":
 			// Refresh service installation status
@@ -238,6 +241,13 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.processingMsg == "" {
 				// Return to main menu after processing and refresh service status
 				m.state = stateMenu
+				m.currentMenu = menuMain
+				m.choices = []string{
+					"Core Services",
+					"Laravel Management",
+					"Server Management",
+					"Exit",
+				}
 				m.formData = make(map[string]string)
 				m.report = []string{} // Clear report
 				m.cursor = 0          // Reset cursor to top of menu
@@ -313,23 +323,129 @@ func (m model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleSelection() (tea.Model, tea.Cmd) {
-	choice := m.choices[m.cursor]
-	m.logger.Info("Selected option", "choice", choice)
+// enterSubmenu handles entering a submenu from the main menu
+func (m model) enterSubmenu() (tea.Model, tea.Cmd) {
+	switch m.cursor {
+	case 0: // Core Services
+		m.state = stateSubmenu
+		m.currentMenu = menuCoreServices
+		m.choices = []string{
+			"Install PHP 8.4",
+			"Install PHP Composer",
+			"Install Python, pip, and virtualenv",
+			"Install Node.js and npm",
+			"Install MySQL",
+			"Install Caddy Server (recommended)",
+			"Install Supervisor (recommended)",
+			"Install Git CLI (recommended)",
+			"Back to Main Menu",
+		}
+		m.cursor = 0
+		return m, tea.ClearScreen
+	case 1: // Laravel Management
+		m.state = stateSubmenu
+		m.currentMenu = menuLaravelManagement
+		m.choices = []string{
+			"Create a new Laravel Site",
+			"Update Laravel Site",
+			"Setup Laravel Queue Worker",
+			"Back to Main Menu",
+		}
+		m.cursor = 0
+		return m, tea.ClearScreen
+	case 2: // Server Management
+		m.state = stateSubmenu
+		m.currentMenu = menuServerManagement
+		m.choices = []string{
+			"Backup MySQL Database",
+			"System Status",
+			"View Installation Logs",
+			"Back to Main Menu",
+		}
+		m.cursor = 0
+		return m, tea.ClearScreen
+	case 3: // Exit
+		return m, tea.Quit
+	}
+	return m, nil
+}
 
+// updateSubmenu handles input in submenu state
+func (m model) updateSubmenu(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
+			// Go back to main menu
+			return m.returnToMainMenu()
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.choices)-1 {
+				m.cursor++
+			}
+		case "enter", " ":
+			// Check if this is "Back to Main Menu" option
+			if m.cursor == len(m.choices)-1 {
+				return m.returnToMainMenu()
+			}
+			// Handle submenu selection
+			return m.handleSubmenuSelection()
+		case "r", "R":
+			// Refresh service installation status
+			modelPtr := &m
+			modelPtr.checkServiceInstallations()
+			return *modelPtr, nil
+		}
+	}
+	return m, nil
+}
+
+// returnToMainMenu returns to the main menu
+func (m model) returnToMainMenu() (tea.Model, tea.Cmd) {
+	m.state = stateMenu
+	m.currentMenu = menuMain
+	m.choices = []string{
+		"Core Services",
+		"Laravel Management",
+		"Server Management",
+		"Exit",
+	}
+	m.cursor = 0
+	return m, tea.ClearScreen
+}
+
+// handleSubmenuSelection handles selections within submenus
+func (m model) handleSubmenuSelection() (tea.Model, tea.Cmd) {
+	switch m.currentMenu {
+	case menuCoreServices:
+		return m.handleCoreServicesSelection()
+	case menuLaravelManagement:
+		return m.handleLaravelManagementSelection()
+	case menuServerManagement:
+		return m.handleServerManagementSelection()
+	}
+	return m, nil
+}
+
+// handleCoreServicesSelection handles Core Services submenu selections
+func (m model) handleCoreServicesSelection() (tea.Model, tea.Cmd) {
 	switch m.cursor {
 	case 0: // Install PHP 8.4
 		newModel, cmd := m.installPHP()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 1: // Upgrade to PHP 8.5
-		//newModel, cmd := m.upgradeToPHP85()
-		//return newModel, tea.Batch(tea.ClearScreen, cmd)
-		return m, nil
-	case 2: // Install PHP Composer
+	case 1: // Install PHP Composer
 		newModel, cmd := m.installComposer()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 3: // Install Python & pip
+	case 2: // Install Python, pip, and virtualenv
 		newModel, cmd := m.installPython()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	case 3: // Install Node.js and npm
+		newModel, cmd := m.installNode()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 4: // Install MySQL
 		newModel, cmd := m.installMySQL()
@@ -337,41 +453,54 @@ func (m model) handleSelection() (tea.Model, tea.Cmd) {
 	case 5: // Install Caddy Server
 		newModel, cmd := m.installCaddy()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 6: // Install Git CLI
-		newModel, cmd := m.installGit()
-		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 7: // Install Supervisor
+	case 6: // Install Supervisor
 		newModel, cmd := m.installSupervisor()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 8: // Create New Laravel Site
-		return m.startInput("Enter site name (e.g., myapp):", "siteName", 8)
-	case 9: // Update Laravel Site
-		return m.startInput("Select site number:", "siteIndex", 9)
-	case 10: // Setup Laravel Queue Worker
-		return m.startInput("Enter Laravel site name:", "queueSiteName", 10)
-	case 11: // Backup MySQL Database
-		return m.startInput("Enter database name:", "dbName", 11)
-	case 12: // System Status
+	case 7: // Install Git CLI
+		newModel, cmd := m.installGit()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	}
+	return m, nil
+}
+
+// handleLaravelManagementSelection handles Laravel Management submenu selections
+func (m model) handleLaravelManagementSelection() (tea.Model, tea.Cmd) {
+	switch m.cursor {
+	case 0: // Create a new Laravel Site
+		return m.startInput("Enter site name (e.g., myapp):", "siteName", 100)
+	case 1: // Update Laravel Site
+		return m.startInput("Select site number:", "siteIndex", 101)
+	case 2: // Setup Laravel Queue Worker
+		return m.startInput("Enter Laravel site name:", "queueSiteName", 102)
+	}
+	return m, nil
+}
+
+// handleServerManagementSelection handles Server Management submenu selections
+func (m model) handleServerManagementSelection() (tea.Model, tea.Cmd) {
+	switch m.cursor {
+	case 0: // Backup MySQL Database
+		return m.startInput("Enter database name:", "dbName", 103)
+	case 1: // System Status
 		newModel, cmd := m.showSystemStatus()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
-	case 13: // View Installation Logs
+	case 2: // View Installation Logs
 		newModel, cmd := m.showInstallationLogs()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
-
 	return m, nil
 }
 
 func (m model) processFormInput() (tea.Model, tea.Cmd) {
 	// This function handles the form input flow for different actions
 	switch m.currentAction {
-	case 8: // Create New Laravel Site
+	case 100: // Create New Laravel Site
 		return m.handleLaravelSiteForm()
-	case 9: // Update Laravel Site
+	case 101: // Update Laravel Site
 		return m.handleUpdateSiteForm()
-	case 10: // Setup Laravel Queue Worker
+	case 102: // Setup Laravel Queue Worker
 		return m.handleQueueWorkerForm()
-	case 11: // Backup MySQL Database
+	case 103: // Backup MySQL Database
 		return m.handleBackupForm()
 	}
 
@@ -407,6 +536,9 @@ func (m *model) checkServiceInstallations() {
 	// Check Python installation
 	m.serviceStatus["python"] = m.isServiceInstalled("python3", "--version")
 
+	// Check Node.js installation
+	m.serviceStatus["node"] = m.isServiceInstalled("node", "--version")
+
 	// Check MySQL installation
 	m.serviceStatus["mysql"] = m.isServiceInstalled("mysql", "--version")
 
@@ -434,6 +566,8 @@ func (m *model) refreshServiceStatus(serviceName string) {
 		m.serviceStatus["composer"] = m.isServiceInstalled("composer", "--version")
 	case "python":
 		m.serviceStatus["python"] = m.isServiceInstalled("python3", "--version")
+	case "node":
+		m.serviceStatus["node"] = m.isServiceInstalled("node", "--version")
 	case "mysql":
 		m.serviceStatus["mysql"] = m.isServiceInstalled("mysql", "--version")
 	case "caddy":
@@ -454,6 +588,8 @@ func (m model) View() string {
 	switch m.state {
 	case stateMenu:
 		return m.viewMenu()
+	case stateSubmenu:
+		return m.viewSubmenu()
 	case stateInput:
 		return m.viewInput()
 	case stateProcessing:
@@ -469,48 +605,73 @@ func (m model) viewMenu() string {
 
 	for i, choice := range m.choices {
 		cursor := " "
-		serviceIcon := ""
-
-		// Add service status icons for installation options
-		switch i {
-		case 0: // Install PHP 8.4
-			serviceIcon = m.getServiceIcon("php") + " "
-		case 1: // Upgrade to PHP 8.5
-			serviceIcon = m.getServiceIcon("php") + " "
-		case 2: // Install PHP Composer
-			serviceIcon = m.getServiceIcon("composer") + " "
-		case 3: // Install Python & pip
-			serviceIcon = m.getServiceIcon("python") + " "
-		case 4: // Install MySQL
-			serviceIcon = m.getServiceIcon("mysql") + " "
-		case 5: // Install Caddy Server
-			serviceIcon = m.getServiceIcon("caddy") + " "
-		case 6: // Install Git CLI
-			serviceIcon = m.getServiceIcon("git") + " "
-		case 7: // Install Supervisor
-			serviceIcon = m.getServiceIcon("supervisor") + " "
-		}
-
 		if m.cursor == i {
 			cursor = ">"
-			if i == 1 { // Style for disabled selected option
-				choice = choiceStyle.Render(serviceIcon + choice)
-			} else {
-				choice = selectedStyle.Render(serviceIcon + choice)
-			}
+			choice = selectedStyle.Render(choice)
 		} else {
-			if i == 1 { // Style for disabled non-selected option
-				choice = choiceStyle.Render(serviceIcon + choice)
-			} else {
-				choice = choiceStyle.Render(serviceIcon + choice)
-			}
+			choice = choiceStyle.Render(choice)
 		}
 
 		s += fmt.Sprintf("%s %s\n", cursor, choice)
 	}
 
-	s += "\nPress q to quit, r to refresh service status.\n"
-	s += "\n✅ = Installed  ⬜ = Not installed\n"
+	s += "\nPress q to quit, Enter to select.\n"
+	return s
+}
+
+func (m model) viewSubmenu() string {
+	var title string
+	switch m.currentMenu {
+	case menuCoreServices:
+		title = "🔧 Core Services"
+	case menuLaravelManagement:
+		title = "🚀 Laravel Management"
+	case menuServerManagement:
+		title = "⚙️ Server Management"
+	}
+
+	s := titleStyle.Render(title) + "\n\n"
+
+	for i, choice := range m.choices {
+		cursor := " "
+		serviceIcon := ""
+
+		// Add service status icons for installation options in Core Services
+		if m.currentMenu == menuCoreServices && i < len(m.choices)-1 {
+			switch i {
+			case 0: // Install PHP 8.4
+				serviceIcon = m.getServiceIcon("php") + " "
+			case 1: // Install PHP Composer
+				serviceIcon = m.getServiceIcon("composer") + " "
+			case 2: // Install Python, pip, and virtualenv
+				serviceIcon = m.getServiceIcon("python") + " "
+			case 3: // Install Node.js and npm
+				serviceIcon = m.getServiceIcon("node") + " "
+			case 4: // Install MySQL
+				serviceIcon = m.getServiceIcon("mysql") + " "
+			case 5: // Install Caddy Server
+				serviceIcon = m.getServiceIcon("caddy") + " "
+			case 6: // Install Supervisor
+				serviceIcon = m.getServiceIcon("supervisor") + " "
+			case 7: // Install Git CLI
+				serviceIcon = m.getServiceIcon("git") + " "
+			}
+		}
+
+		if m.cursor == i {
+			cursor = ">"
+			choice = selectedStyle.Render(serviceIcon + choice)
+		} else {
+			choice = choiceStyle.Render(serviceIcon + choice)
+		}
+
+		s += fmt.Sprintf("%s %s\n", cursor, choice)
+	}
+
+	s += "\nPress Esc or select 'Back to Main Menu' to return, q to quit, r to refresh.\n"
+	if m.currentMenu == menuCoreServices {
+		s += "\n✅ = Installed  ⬜ = Not installed\n"
+	}
 	return s
 }
 
