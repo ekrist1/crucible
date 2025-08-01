@@ -10,6 +10,32 @@ import (
 	"crucible/internal/actions"
 )
 
+// parseInt converts string to int for simple cases (matches the one in actions/laravel.go)
+func parseInt(s string) int {
+	switch s {
+	case "1":
+		return 1
+	case "2":
+		return 2
+	case "3":
+		return 3
+	case "4":
+		return 4
+	case "5":
+		return 5
+	case "6":
+		return 6
+	case "7":
+		return 7
+	case "8":
+		return 8
+	case "9":
+		return 9
+	default:
+		return 0
+	}
+}
+
 // TUI form handling functions - these handle the input flow and validation
 
 func (m Model) HandleLaravelSiteForm() (Model, tea.Cmd) {
@@ -57,8 +83,49 @@ func (m Model) HandleUpdateSiteForm() (Model, tea.Cmd) {
 			m.State = StateMenu
 			return m, nil
 		}
+		
+		// Validate the site index
+		sites, err := actions.ListLaravelSites()
+		if err != nil {
+			m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error listing sites: %v", err))}
+			m.State = StateMenu
+			return m, nil
+		}
+		
+		// Parse the site index
+		siteIndex := parseInt(m.InputValue)
+		if siteIndex < 1 || siteIndex > len(sites) {
+			m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Invalid site number. Please enter a number between 1 and %d", len(sites)))}
+			m.State = StateMenu
+			return m, nil
+		}
+		
+		selectedSite := sites[siteIndex-1]
 		m.FormData["siteIndex"] = m.InputValue
-		// TODO: Connect to actions package
+		m.FormData["selectedSite"] = selectedSite
+		
+		// Show confirmation before updating
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			TitleStyle.Render("🔄 Update Laravel Site"),
+			"",
+			InfoStyle.Render(fmt.Sprintf("Selected site: %s", selectedSite)),
+			InfoStyle.Render(fmt.Sprintf("Path: /var/www/%s", selectedSite)),
+			"",
+			InfoStyle.Render("This will:"),
+			"• Put site in maintenance mode",
+			"• Pull latest changes from Git",
+			"• Update Composer dependencies",
+			"• Run database migrations",
+			"• Clear caches",
+			"• Set proper permissions",
+			"• Bring site back online",
+			"",
+			WarnStyle.Render("⚠️  Make sure you have committed and pushed your changes!"),
+		}
+		
+		// Start the update process after a brief display
 		newModel, cmd := m.updateLaravelSiteWithData()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	}
@@ -119,7 +186,34 @@ func (m Model) HandleBackupForm() (Model, tea.Cmd) {
 
 func (m Model) HandleQueueWorkerForm() (Model, tea.Cmd) {
 	switch m.InputField {
+	case "queueSiteIndex":
+		if m.InputValue == "" {
+			m.Report = []string{WarnStyle.Render("❌ Site index cannot be empty")}
+			m.State = StateMenu
+			return m, nil
+		}
+		
+		// Validate the site index
+		sites, err := actions.ListLaravelSites()
+		if err != nil {
+			m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error listing sites: %v", err))}
+			m.State = StateMenu
+			return m, nil
+		}
+		
+		// Parse the site index
+		siteIndex := parseInt(m.InputValue)
+		if siteIndex < 1 || siteIndex > len(sites) {
+			m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Invalid site number. Please enter a number between 1 and %d", len(sites)))}
+			m.State = StateMenu
+			return m, nil
+		}
+		
+		selectedSite := sites[siteIndex-1]
+		m.FormData["queueSiteName"] = selectedSite
+		return m.StartInput("Enter queue connection (default: database):", "queueConnection", 102)
 	case "queueSiteName":
+		// Keep this for backward compatibility or direct site name input
 		if m.InputValue == "" {
 			m.Report = []string{WarnStyle.Render("❌ Site name cannot be empty")}
 			m.State = StateMenu
@@ -191,31 +285,6 @@ func isValidGitURL(url string) bool {
 	return httpsRegex.MatchString(url) || sshRegex.MatchString(url) || httpsNoGitRegex.MatchString(url)
 }
 
-// parseInt converts string to int for simple cases
-func parseInt(s string) int {
-	switch s {
-	case "1":
-		return 1
-	case "2":
-		return 2
-	case "3":
-		return 3
-	case "4":
-		return 4
-	case "5":
-		return 5
-	case "6":
-		return 6
-	case "7":
-		return 7
-	case "8":
-		return 8
-	case "9":
-		return 9
-	default:
-		return 0
-	}
-}
 
 // Action functions - these now use the actions packages to get command sequences
 func (m Model) createLaravelSiteWithData() (Model, tea.Cmd) {

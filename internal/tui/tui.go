@@ -14,6 +14,7 @@ import (
 	
 	"crucible/internal/services"
 	"crucible/internal/logging"
+	"crucible/internal/actions"
 )
 
 type AppState int
@@ -350,9 +351,9 @@ func (m Model) handleLaravelManagementSelection() (tea.Model, tea.Cmd) {
 	case 0: // Create a new Laravel Site
 		return m.startInput("Enter site name (e.g., myapp):", "siteName", 100)
 	case 1: // Update Laravel Site
-		return m.startInput("Select site number:", "siteIndex", 101)
+		return m.showLaravelSiteList()
 	case 2: // Setup Laravel Queue Worker
-		return m.startInput("Enter Laravel site name:", "queueSiteName", 102)
+		return m.showLaravelSiteListForQueue()
 	case 3: // GitHub Authentication
 		return m.handleGitHubAuth()
 	}
@@ -1304,6 +1305,10 @@ func (m Model) generateSSHKey() (tea.Model, tea.Cmd) {
 	commands = append(commands, fmt.Sprintf("mkdir -p %s", sshDir))
 	descriptions = append(descriptions, "Creating SSH directory...")
 	
+	// Remove existing key files first to avoid prompts
+	commands = append(commands, fmt.Sprintf("rm -f %s/id_ed25519 %s/id_ed25519.pub", sshDir, sshDir))
+	descriptions = append(descriptions, "Removing existing SSH keys...")
+	
 	// Generate SSH key
 	keygenCmd := fmt.Sprintf("ssh-keygen -t ed25519 -C \"%s\" -f %s/id_ed25519", email, sshDir)
 	if passphrase != "" {
@@ -1335,7 +1340,8 @@ func (m Model) handleGitHubActionInput() (tea.Model, tea.Cmd) {
 	case "t", "test":
 		return m.testGitHubConnection()
 	case "r", "regenerate":
-		return m.startInput("Enter your GitHub email address:", "githubEmail", 300)
+		m.FormData["githubAction"] = "regenerate"
+		return m.startInput("⚠️  This will overwrite your existing SSH key. Enter your GitHub email address:", "githubEmail", 300)
 	default:
 		m.State = StateProcessing
 		m.ProcessingMsg = ""
@@ -1365,9 +1371,16 @@ func (m *Model) showGeneratedSSHKey() {
 	// Check if a passphrase was used
 	passphrase := m.FormData["githubPassphrase"]
 	
-	// Clear previous report and show the key with instructions
+	// Clear previous report and show the key with instructions  
+	// Check if this was a regeneration or new generation
+	isRegeneration := m.FormData["githubAction"] == "r" || m.FormData["githubAction"] == "regenerate"
+	title := "🎉 SSH Key Generated Successfully!"
+	if isRegeneration {
+		title = "🔄 SSH Key Regenerated Successfully!"
+	}
+	
 	m.Report = []string{
-		TitleStyle.Render("🎉 SSH Key Generated Successfully!"),
+		TitleStyle.Render(title),
 		"",
 		InfoStyle.Render("Your new SSH public key:"),
 		"",
@@ -1386,13 +1399,37 @@ func (m *Model) showGeneratedSSHKey() {
 		)
 	}
 	
+	steps := "📋 Next steps to add this key to GitHub:"
+	if isRegeneration {
+		steps = "📋 Next steps to update this key on GitHub:"
+		m.Report = append(m.Report,
+			WarnStyle.Render("⚠️  Important: You need to replace your old key on GitHub with this new one!"),
+			"",
+		)
+	}
+	
 	m.Report = append(m.Report,
-		InfoStyle.Render("📋 Next steps to add this key to GitHub:"),
+		InfoStyle.Render(steps),
 		"1. Copy the key above (select and Ctrl+C)",
 		"2. Go to GitHub.com → Settings → SSH and GPG keys",
-		"3. Click 'New SSH key'",
-		"4. Paste your key and give it a title (e.g., 'My Server')",
-		"5. Click 'Add SSH key'",
+	)
+	
+	if isRegeneration {
+		m.Report = append(m.Report,
+			"3. Find your old key and click 'Delete'",
+			"4. Click 'New SSH key'", 
+			"5. Paste your new key and give it a title (e.g., 'My Server')",
+			"6. Click 'Add SSH key'",
+		)
+	} else {
+		m.Report = append(m.Report,
+			"3. Click 'New SSH key'",
+			"4. Paste your key and give it a title (e.g., 'My Server')",
+			"5. Click 'Add SSH key'",
+		)
+	}
+	
+	m.Report = append(m.Report,
 		"",
 		InfoStyle.Render("🧪 After adding to GitHub, test your connection with:"),
 		ChoiceStyle.Render("ssh -T git@github.com"),
@@ -1456,4 +1493,118 @@ func (m *Model) showGitHubTestResults() {
 		"• 'Could not open connection' → SSH agent not running",
 		"• 'Connection timeout' → Network or firewall issues",
 	)
+}
+
+func (m Model) showLaravelSiteList() (tea.Model, tea.Cmd) {
+	// Use the actions package to list Laravel sites
+	sites, err := actions.ListLaravelSites()
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render(fmt.Sprintf("❌ Error scanning for Laravel sites: %v", err)),
+			"",
+			InfoStyle.Render("Make sure /var/www exists and is accessible"),
+		}
+		return m, tea.ClearScreen
+	}
+	
+	if len(sites) == 0 {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render("❌ No Laravel sites found in /var/www"),
+			"",
+			InfoStyle.Render("Create a Laravel site first using 'Create a new Laravel Site'"),
+		}
+		return m, tea.ClearScreen
+	}
+	
+	// Build the report showing available sites
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.Report = []string{
+		TitleStyle.Render("📂 Available Laravel Sites"),
+		"",
+		InfoStyle.Render("Found the following Laravel sites in /var/www:"),
+		"",
+	}
+	
+	for i, site := range sites {
+		sitePath := fmt.Sprintf("/var/www/%s", site)
+		// Check if it's a git repository
+		gitStatus := "📁 Regular site"
+		if _, err := os.Stat(fmt.Sprintf("%s/.git", sitePath)); err == nil {
+			gitStatus = "📦 Git repository"
+		}
+		
+		m.Report = append(m.Report, 
+			InfoStyle.Render(fmt.Sprintf("%d. %s", i+1, site)),
+			ChoiceStyle.Render(fmt.Sprintf("   Path: %s", sitePath)),
+			ChoiceStyle.Render(fmt.Sprintf("   Type: %s", gitStatus)),
+			"",
+		)
+	}
+	
+	// Store sites for later use and ask for selection
+	m.FormData["availableSites"] = fmt.Sprintf("%v", sites) // Convert to string for storage
+	
+	m.Report = append(m.Report,
+		InfoStyle.Render("Select a site to update:"),
+	)
+	
+	newModel, cmd := m.startInput("Enter site number (1-" + fmt.Sprintf("%d", len(sites)) + "):", "siteIndex", 101)
+	return newModel, cmd
+}
+
+func (m Model) showLaravelSiteListForQueue() (tea.Model, tea.Cmd) {
+	// Use the actions package to list Laravel sites
+	sites, err := actions.ListLaravelSites()
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render(fmt.Sprintf("❌ Error scanning for Laravel sites: %v", err)),
+			"",
+			InfoStyle.Render("Make sure /var/www exists and is accessible"),
+		}
+		return m, tea.ClearScreen
+	}
+	
+	if len(sites) == 0 {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{
+			WarnStyle.Render("❌ No Laravel sites found in /var/www"),
+			"",
+			InfoStyle.Render("Create a Laravel site first using 'Create a new Laravel Site'"),
+		}
+		return m, tea.ClearScreen
+	}
+	
+	// Build the report showing available sites
+	m.State = StateProcessing
+	m.ProcessingMsg = ""
+	m.Report = []string{
+		TitleStyle.Render("🚀 Setup Queue Worker"),
+		"",
+		InfoStyle.Render("Select a Laravel site to setup queue worker for:"),
+		"",
+	}
+	
+	for i, site := range sites {
+		sitePath := fmt.Sprintf("/var/www/%s", site)
+		m.Report = append(m.Report, 
+			InfoStyle.Render(fmt.Sprintf("%d. %s", i+1, site)),
+			ChoiceStyle.Render(fmt.Sprintf("   Path: %s", sitePath)),
+			"",
+		)
+	}
+	
+	m.Report = append(m.Report,
+		InfoStyle.Render("Select a site for queue worker setup:"),
+	)
+	
+	newModel, cmd := m.startInput("Enter site number (1-" + fmt.Sprintf("%d", len(sites)) + "):", "queueSiteIndex", 102)
+	return newModel, cmd
 }

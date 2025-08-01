@@ -169,10 +169,12 @@ func InstallMySQL(rootPassword string) ([]string, []string, error) {
 				"sudo apt install -y mysql-server",
 				"sudo systemctl start mysql",
 				"sudo systemctl enable mysql",
-				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"", rootPassword, rootPassword),
-				"sudo mysql -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"",
-				"sudo mysql -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"",
-				"sudo mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"",
+				// Set up root user with password - this handles various MySQL installation states
+				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\" 2>/dev/null || sudo mysql -e \"UPDATE mysql.user SET authentication_string=PASSWORD('%s') WHERE User='root'; UPDATE mysql.user SET plugin='mysql_native_password' WHERE User='root'; FLUSH PRIVILEGES;\"", rootPassword, rootPassword, rootPassword),
+				// Now we can use the password to run the remaining security commands
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"", rootPassword),
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"", rootPassword),
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"", rootPassword),
 			}
 			descriptions = []string{
 				"Updating package lists...",
@@ -204,10 +206,12 @@ func InstallMySQL(rootPassword string) ([]string, []string, error) {
 				"sudo dnf install -y mysql-server",
 				"sudo systemctl start mysqld",
 				"sudo systemctl enable mysqld",
-				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"", rootPassword, rootPassword),
-				"sudo mysql -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"",
-				"sudo mysql -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"",
-				"sudo mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"",
+				// Set up root user with password - this handles various MySQL installation states
+				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\" 2>/dev/null || sudo mysql -e \"UPDATE mysql.user SET authentication_string=PASSWORD('%s') WHERE User='root'; UPDATE mysql.user SET plugin='mysql_native_password' WHERE User='root'; FLUSH PRIVILEGES;\"", rootPassword, rootPassword, rootPassword),
+				// Now we can use the password to run the remaining security commands
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"", rootPassword),
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"", rootPassword),
+				fmt.Sprintf("mysql -u root -p'%s' -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"", rootPassword),
 			}
 			descriptions = []string{
 				"Installing MySQL server...",
