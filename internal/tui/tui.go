@@ -1320,13 +1320,8 @@ func (m Model) generateSSHKey() (tea.Model, tea.Cmd) {
 	commands = append(commands, fmt.Sprintf("chmod 644 %s/id_ed25519.pub", sshDir))
 	descriptions = append(descriptions, "Setting public key permissions...")
 	
-	// Start SSH agent and add key
-	if passphrase != "" {
-		commands = append(commands, "eval \"$(ssh-agent -s)\"")
-		descriptions = append(descriptions, "Starting SSH agent...")
-		commands = append(commands, fmt.Sprintf("echo \"%s\" | ssh-add %s/id_ed25519", passphrase, sshDir))
-		descriptions = append(descriptions, "Adding key to SSH agent...")
-	}
+	// Note: We skip SSH agent setup here as it's complex in automated scripts
+	// The user will be instructed how to add the key manually if needed
 	
 	return m.startCommandQueue(commands, descriptions, "github-ssh")
 }
@@ -1350,7 +1345,8 @@ func (m Model) handleGitHubActionInput() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) testGitHubConnection() (tea.Model, tea.Cmd) {
-	commands := []string{"ssh -T git@github.com"}
+	// Add timeout and better error handling for SSH test
+	commands := []string{"timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes -T git@github.com"}
 	descriptions := []string{"Testing GitHub SSH connection..."}
 	
 	return m.startCommandQueue(commands, descriptions, "github-test")
@@ -1366,6 +1362,9 @@ func (m *Model) showGeneratedSSHKey() {
 		return
 	}
 	
+	// Check if a passphrase was used
+	passphrase := m.FormData["githubPassphrase"]
+	
 	// Clear previous report and show the key with instructions
 	m.Report = []string{
 		TitleStyle.Render("🎉 SSH Key Generated Successfully!"),
@@ -1374,6 +1373,20 @@ func (m *Model) showGeneratedSSHKey() {
 		"",
 		ChoiceStyle.Render(string(content)),
 		"",
+	}
+	
+	// Add SSH agent instructions if passphrase was used
+	if passphrase != "" {
+		m.Report = append(m.Report,
+			InfoStyle.Render("🔐 SSH Agent Setup (since you used a passphrase):"),
+			"1. Start SSH agent: eval \"$(ssh-agent -s)\"",
+			fmt.Sprintf("2. Add your key: ssh-add %s/.ssh/id_ed25519", homeDir),
+			"3. Enter your passphrase when prompted",
+			"",
+		)
+	}
+	
+	m.Report = append(m.Report,
 		InfoStyle.Render("📋 Next steps to add this key to GitHub:"),
 		"1. Copy the key above (select and Ctrl+C)",
 		"2. Go to GitHub.com → Settings → SSH and GPG keys",
@@ -1390,7 +1403,7 @@ func (m *Model) showGeneratedSSHKey() {
 		WarnStyle.Render("Note: You may see a warning about authenticity - type 'yes' to continue"),
 		"",
 		InfoStyle.Render("💡 Tip: You can also test the connection from the GitHub Authentication menu"),
-	}
+	)
 }
 
 func (m *Model) showGitHubTestResults() {
@@ -1425,16 +1438,22 @@ func (m *Model) showGitHubTestResults() {
 	}
 	
 	// Connection failed or other issue
+	homeDir, _ := os.UserHomeDir()
 	m.Report = append(m.Report, "",
 		WarnStyle.Render("❌ GitHub SSH connection test failed"),
 		"",
 		InfoStyle.Render("Common solutions:"),
 		"1. Make sure you've added your SSH key to GitHub",
-		"2. Check if your SSH agent is running: ssh-add -l",
-		"3. Try accepting GitHub's fingerprint: ssh -T git@github.com",
-		"4. Verify your SSH key: cat ~/.ssh/id_ed25519.pub",
+		"2. If you used a passphrase, add key to SSH agent:",
+		"   • eval \"$(ssh-agent -s)\"",
+		fmt.Sprintf("   • ssh-add %s/.ssh/id_ed25519", homeDir),
+		"3. Try accepting GitHub's fingerprint manually: ssh -T git@github.com",
+		"4. Verify your SSH key exists: cat ~/.ssh/id_ed25519.pub",
 		"",
-		InfoStyle.Render("If you see 'Permission denied', your key isn't added to GitHub yet"),
-		InfoStyle.Render("If you see 'Host key verification failed', type 'yes' when prompted"),
+		InfoStyle.Render("Common error meanings:"),
+		"• 'Permission denied' → SSH key not added to GitHub",
+		"• 'Host key verification failed' → Type 'yes' when prompted",
+		"• 'Could not open connection' → SSH agent not running",
+		"• 'Connection timeout' → Network or firewall issues",
 	)
 }
