@@ -141,39 +141,83 @@ func InstallNode() ([]string, []string, error) {
 }
 
 // InstallMySQL returns commands for installing MySQL server
-func InstallMySQL() ([]string, []string, error) {
+func InstallMySQL(rootPassword string) ([]string, []string, error) {
 	osType := system.GetOSType()
 	var commands []string
 	var descriptions []string
 
 	switch osType {
 	case "ubuntu":
-		commands = []string{
-			"sudo apt update",
-			"sudo apt install -y mysql-server",
-			"sudo systemctl start mysql",
-			"sudo systemctl enable mysql",
-			"sudo mysql_secure_installation",
-		}
-		descriptions = []string{
-			"Updating package lists...",
-			"Installing MySQL server...",
-			"Starting MySQL service...",
-			"Enabling MySQL service at boot...",
-			"Running MySQL secure installation...",
+		if rootPassword == "" {
+			// Installation without secure setup (interactive mode)
+			commands = []string{
+				"sudo apt update",
+				"sudo apt install -y mysql-server",
+				"sudo systemctl start mysql",
+				"sudo systemctl enable mysql",
+			}
+			descriptions = []string{
+				"Updating package lists...",
+				"Installing MySQL server...",
+				"Starting MySQL service...",
+				"Enabling MySQL service at boot...",
+			}
+		} else {
+			// Automated installation with password setup
+			commands = []string{
+				"sudo apt update",
+				"sudo apt install -y mysql-server",
+				"sudo systemctl start mysql",
+				"sudo systemctl enable mysql",
+				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"", rootPassword, rootPassword),
+				"sudo mysql -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"",
+				"sudo mysql -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"",
+				"sudo mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"",
+			}
+			descriptions = []string{
+				"Updating package lists...",
+				"Installing MySQL server...",
+				"Starting MySQL service...",
+				"Enabling MySQL service at boot...",
+				"Setting root password and authentication...",
+				"Removing anonymous users...",
+				"Removing test database...",
+				"Securing root user access...",
+			}
 		}
 	case "fedora":
-		commands = []string{
-			"sudo dnf install -y mysql-server",
-			"sudo systemctl start mysqld",
-			"sudo systemctl enable mysqld",
-			"sudo mysql_secure_installation",
-		}
-		descriptions = []string{
-			"Installing MySQL server...",
-			"Starting MySQL service...",
-			"Enabling MySQL service at boot...",
-			"Running MySQL secure installation...",
+		if rootPassword == "" {
+			// Installation without secure setup (interactive mode)
+			commands = []string{
+				"sudo dnf install -y mysql-server",
+				"sudo systemctl start mysqld",
+				"sudo systemctl enable mysqld",
+			}
+			descriptions = []string{
+				"Installing MySQL server...",
+				"Starting MySQL service...",
+				"Enabling MySQL service at boot...",
+			}
+		} else {
+			// Automated installation with password setup
+			commands = []string{
+				"sudo dnf install -y mysql-server",
+				"sudo systemctl start mysqld",
+				"sudo systemctl enable mysqld",
+				fmt.Sprintf("sudo mysql -e \"ALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; CREATE USER IF NOT EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"", rootPassword, rootPassword),
+				"sudo mysql -e \"DELETE FROM mysql.user WHERE User=''; FLUSH PRIVILEGES;\"",
+				"sudo mysql -e \"DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;\"",
+				"sudo mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); FLUSH PRIVILEGES;\"",
+			}
+			descriptions = []string{
+				"Installing MySQL server...",
+				"Starting MySQL service...",
+				"Enabling MySQL service at boot...",
+				"Setting root password and authentication...",
+				"Removing anonymous users...",
+				"Removing test database...",
+				"Securing root user access...",
+			}
 		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported operating system: %s", osType)

@@ -330,8 +330,7 @@ func (m Model) handleCoreServicesSelection() (tea.Model, tea.Cmd) {
 		newModel, cmd := m.installNode()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 4: // Install MySQL
-		newModel, cmd := m.installMySQL()
-		return newModel, tea.Batch(tea.ClearScreen, cmd)
+		return m.startInput("Enter MySQL root password (min 8 chars, this will be used for automated setup):", "mysqlRootPassword", 200)
 	case 5: // Install Caddy Server
 		newModel, cmd := m.installCaddy()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
@@ -505,6 +504,8 @@ func (m Model) processFormInput() (tea.Model, tea.Cmd) {
 		return m.handleQueueWorkerForm()
 	case 103: // Backup MySQL Database
 		return m.handleBackupForm()
+	case 200: // Install MySQL
+		return m.handleMySQLInstallForm()
 	}
 
 	// Default: return to menu
@@ -686,7 +687,14 @@ func (m Model) viewSubmenu() string {
 func (m Model) viewInput() string {
 	s := TitleStyle.Render("🔧 Crucible - Laravel Server Setup") + "\n\n"
 	s += PromptStyle.Render(m.InputPrompt) + "\n\n"
-	s += InputStyle.Render(m.InputValue+"│") + "\n\n"
+	
+	// Hide password input
+	displayValue := m.InputValue
+	if m.InputField == "mysqlRootPassword" {
+		displayValue = strings.Repeat("*", len(m.InputValue))
+	}
+	
+	s += InputStyle.Render(displayValue+"│") + "\n\n"
 	s += "Press Enter to continue, Esc to cancel\n"
 	return s
 }
@@ -1032,7 +1040,19 @@ func (m Model) installNode() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) installMySQL() (tea.Model, tea.Cmd) {
-	commands, descriptions, err := services.InstallMySQL()
+	commands, descriptions, err := services.InstallMySQL("")
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+		return m, tea.ClearScreen
+	}
+	return m.startCommandQueue(commands, descriptions, "mysql")
+}
+
+func (m Model) installMySQLWithPassword() (tea.Model, tea.Cmd) {
+	password := m.FormData["mysqlRootPassword"]
+	commands, descriptions, err := services.InstallMySQL(password)
 	if err != nil {
 		m.State = StateProcessing
 		m.ProcessingMsg = ""
@@ -1182,4 +1202,18 @@ func (m Model) handleQueueWorkerForm() (tea.Model, tea.Cmd) {
 func (m Model) handleBackupForm() (tea.Model, tea.Cmd) {
 	newModel, cmd := m.HandleBackupForm()
 	return newModel, cmd
+}
+
+func (m Model) handleMySQLInstallForm() (tea.Model, tea.Cmd) {
+	// Validate password
+	if len(m.InputValue) < 8 {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render("❌ MySQL root password must be at least 8 characters long")}
+		return m, tea.ClearScreen
+	}
+	
+	// Store password and proceed with installation
+	m.FormData["mysqlRootPassword"] = m.InputValue
+	return m.installMySQLWithPassword()
 }
