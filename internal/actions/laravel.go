@@ -69,7 +69,7 @@ func CreateLaravelSite(config LaravelSiteConfig) ([]string, []string) {
 	// 6. Create Caddy site configuration
 	caddyConfig := fmt.Sprintf(`%s {
     root * %s/public
-    php_fastcgi 127.0.0.1:9000
+    php_fastcgi unix//run/php-fpm/caddy.sock
     encode gzip
     
     # Laravel specific rewrite rules

@@ -360,8 +360,7 @@ func (m Model) handleCoreServicesSelection() (tea.Model, tea.Cmd) {
 		newModel, cmd := m.installPython()
 		return newModel, tea.Batch(tea.ClearScreen, cmd)
 	case 3: // Install Node.js and npm
-		newModel, cmd := m.installNode()
-		return newModel, tea.Batch(tea.ClearScreen, cmd)
+		return m.startInput("Install PM2 for Next.js applications? (y/n, optional):", "nodePM2", 204)
 	case 4: // Install MySQL
 		return m.startInput("Enter MySQL root password (min 8 chars, this will be used for automated setup):", "mysqlRootPassword", 200)
 	case 5: // Install Caddy Server
@@ -587,6 +586,8 @@ func (m Model) processFormInput() (tea.Model, tea.Cmd) {
 		return m.handleBackupForm()
 	case 200: // Install MySQL
 		return m.handleMySQLInstallForm()
+	case 204: // Install Node.js with optional PM2
+		return m.handleNodeInstallForm()
 	case 300: // GitHub Authentication - Email input
 		return m.handleGitHubEmailInput()
 	case 301: // GitHub Authentication - Passphrase input
@@ -1116,6 +1117,17 @@ func (m Model) installNode() (tea.Model, tea.Cmd) {
 	return m.startCommandQueue(commands, descriptions, "node")
 }
 
+func (m Model) installNodeWithPM2(installPM2 bool) (tea.Model, tea.Cmd) {
+	commands, descriptions, err := services.InstallNodeWithPM2(installPM2)
+	if err != nil {
+		m.State = StateProcessing
+		m.ProcessingMsg = ""
+		m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+		return m, tea.ClearScreen
+	}
+	return m.startCommandQueue(commands, descriptions, "node")
+}
+
 func (m Model) installMySQL() (tea.Model, tea.Cmd) {
 	commands, descriptions, err := services.InstallMySQL("")
 	if err != nil {
@@ -1328,6 +1340,16 @@ func (m Model) handleMySQLInstallForm() (tea.Model, tea.Cmd) {
 	// Store password and proceed with installation
 	m.FormData["mysqlRootPassword"] = m.InputValue
 	return m.installMySQLWithPassword()
+}
+
+func (m Model) handleNodeInstallForm() (tea.Model, tea.Cmd) {
+	// Validate input (y/n)
+	response := strings.ToLower(strings.TrimSpace(m.InputValue))
+	installPM2 := response == "y" || response == "yes"
+
+	// Store PM2 choice and proceed with installation
+	m.FormData["installPM2"] = fmt.Sprintf("%t", installPM2)
+	return m.installNodeWithPM2(installPM2)
 }
 
 func (m Model) handleGitHubAuth() (tea.Model, tea.Cmd) {

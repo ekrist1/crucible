@@ -140,6 +140,42 @@ func InstallNode() ([]string, []string, error) {
 	return commands, descriptions, nil
 }
 
+// InstallNodeWithPM2 returns commands for installing Node.js and npm with optional PM2
+func InstallNodeWithPM2(installPM2 bool) ([]string, []string, error) {
+	osType := system.GetOSType()
+	var commands []string
+	var descriptions []string
+
+	switch osType {
+	case "ubuntu":
+		commands = []string{
+			"curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -",
+			"sudo apt-get install -y nodejs",
+		}
+		descriptions = []string{
+			"Adding NodeSource repository...",
+			"Installing Node.js and npm...",
+		}
+	case "fedora":
+		commands = []string{
+			"sudo dnf install -y nodejs npm",
+		}
+		descriptions = []string{
+			"Installing Node.js and npm...",
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported operating system: %s", osType)
+	}
+
+	// Add PM2 installation if requested
+	if installPM2 {
+		commands = append(commands, "npm install pm2 -g")
+		descriptions = append(descriptions, "Installing PM2 process manager globally...")
+	}
+
+	return commands, descriptions, nil
+}
+
 // InstallMySQL returns commands for installing MySQL server
 func InstallMySQL(rootPassword string) ([]string, []string, error) {
 	osType := system.GetOSType()
@@ -236,6 +272,22 @@ func InstallCaddy() ([]string, []string, error) {
 	var commands []string
 	var descriptions []string
 
+	// PHP-FPM pool configuration content
+	phpFpmPoolConfig := `[caddy]
+user = caddy
+group = caddy
+listen = /run/php-fpm/caddy.sock
+listen.owner = caddy
+listen.group = caddy
+listen.mode = 0660
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+php_admin_value[error_log] = /var/log/php-fpm/caddy-error.log
+php_admin_flag[log_errors] = on`
+
 	switch osType {
 	case "ubuntu":
 		commands = []string{
@@ -245,6 +297,11 @@ func InstallCaddy() ([]string, []string, error) {
 			"sudo apt update",
 			"sudo apt install -y caddy",
 			"sudo systemctl enable --now caddy",
+			// Create PHP-FPM pool configuration directory and file
+			"sudo mkdir -p /etc/php/8.4/fpm/pool.d /run/php-fpm /var/log/php-fpm",
+			fmt.Sprintf("echo '%s' | sudo tee /etc/php/8.4/fpm/pool.d/caddy.conf > /dev/null", phpFpmPoolConfig),
+			"sudo chown caddy:caddy /run/php-fpm /var/log/php-fpm",
+			"sudo systemctl restart php8.4-fpm || sudo systemctl restart php-fpm || true",
 		}
 		descriptions = []string{
 			"Installing prerequisites...",
@@ -253,6 +310,10 @@ func InstallCaddy() ([]string, []string, error) {
 			"Updating package lists...",
 			"Installing Caddy server...",
 			"Enabling Caddy service...",
+			"Creating PHP-FPM directories...",
+			"Creating Caddy PHP-FPM pool configuration...",
+			"Setting ownership for PHP-FPM directories...",
+			"Restarting PHP-FPM service...",
 		}
 	case "fedora":
 		commands = []string{
@@ -260,12 +321,21 @@ func InstallCaddy() ([]string, []string, error) {
 			"sudo dnf copr enable @caddy/caddy -y",
 			"sudo dnf install -y caddy",
 			"sudo systemctl enable --now caddy",
+			// Create PHP-FPM pool configuration directory and file
+			"sudo mkdir -p /etc/php-fpm.d /run/php-fpm /var/log/php-fpm",
+			fmt.Sprintf("echo '%s' | sudo tee /etc/php-fpm.d/caddy.conf > /dev/null", phpFpmPoolConfig),
+			"sudo chown caddy:caddy /run/php-fpm /var/log/php-fpm",
+			"sudo systemctl restart php-fpm || true",
 		}
 		descriptions = []string{
 			"Installing COPR plugin...",
 			"Adding Caddy COPR repository...",
 			"Installing Caddy server...",
 			"Enabling Caddy service...",
+			"Creating PHP-FPM directories...",
+			"Creating Caddy PHP-FPM pool configuration...",
+			"Setting ownership for PHP-FPM directories...",
+			"Restarting PHP-FPM service...",
 		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported operating system: %s", osType)
