@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"crucible/internal/system"
 )
 
 // LaravelSiteConfig contains configuration for creating a Laravel site
@@ -50,7 +48,7 @@ func CreateLaravelSite(config LaravelSiteConfig) ([]string, []string) {
 	}
 
 	// 3. Set ownership and permissions
-	webUser := system.GetWebServerUser()
+	webUser := "caddy" // Use caddy user for PHP-FPM socket integration
 	commands = append(commands, fmt.Sprintf("sudo chown -R %s:%s %s", webUser, webUser, sitePath))
 	descriptions = append(descriptions, fmt.Sprintf("Setting ownership to %s...", webUser))
 	commands = append(commands, fmt.Sprintf("find %s -type d -exec chmod 755 {} + && find %s -type f -exec chmod 644 {} +", sitePath, sitePath))
@@ -129,7 +127,7 @@ func UpdateLaravelSite(config UpdateSiteConfig) ([]string, []string, error) {
 
 	var commands []string
 	var descriptions []string
-	webUser := system.GetWebServerUser()
+	webUser := "caddy" // Use caddy user for PHP-FPM socket integration
 
 	// 1. Put site in maintenance mode
 	commands = append(commands, fmt.Sprintf("cd %s && php artisan down", sitePath))
@@ -157,7 +155,7 @@ func UpdateLaravelSite(config UpdateSiteConfig) ([]string, []string, error) {
 	commands = append(commands, fmt.Sprintf("cd %s && php artisan view:clear", sitePath))
 	descriptions = append(descriptions, "Clearing view cache...")
 
-	// 6. Set permissions (using system.GetWebServerUser instead of hardcoded www-data)
+	// 6. Set permissions (using caddy user for PHP-FPM socket integration)
 	commands = append(commands, fmt.Sprintf("sudo chown -R %s:%s %s", webUser, webUser, sitePath))
 	descriptions = append(descriptions, fmt.Sprintf("Setting ownership to %s...", webUser))
 	commands = append(commands, fmt.Sprintf("find %s -type d -exec chmod 755 {} + && find %s -type f -exec chmod 644 {} +", sitePath, sitePath))
@@ -175,7 +173,7 @@ func UpdateLaravelSite(config UpdateSiteConfig) ([]string, []string, error) {
 // SetupQueueWorker returns the commands and descriptions for setting up Laravel queue worker
 func SetupQueueWorker(config QueueWorkerConfig) ([]string, []string) {
 	sitePath := filepath.Join("/var/www", config.SiteName)
-	webUser := system.GetWebServerUser()
+	webUser := "caddy" // Use caddy user for PHP-FPM socket integration
 
 	// Generate supervisor configuration
 	workerName := fmt.Sprintf("laravel-worker-%s", config.SiteName)
@@ -208,7 +206,7 @@ stopwaitsecs=3600
 	commands = append(commands, fmt.Sprintf("sudo mkdir -p %s/storage/logs", sitePath))
 	descriptions = append(descriptions, "Creating log directory...")
 
-	// 3. Set proper permissions (using system.GetWebServerUser)
+	// 3. Set proper permissions (using caddy user for PHP-FPM socket integration)
 	commands = append(commands, fmt.Sprintf("sudo chown -R %s:%s %s/storage/logs", webUser, webUser, sitePath))
 	descriptions = append(descriptions, fmt.Sprintf("Setting log permissions for %s...", webUser))
 
@@ -292,7 +290,7 @@ func parseInt(s string) int {
 
 // SetLaravelPermissions sets proper permissions for a Laravel site
 func SetLaravelPermissions(sitePath string) []string {
-	webUser := system.GetWebServerUser()
+	webUser := "caddy" // Use caddy user for PHP-FPM socket integration
 	var commands []string
 
 	// Set ownership
