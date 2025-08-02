@@ -84,6 +84,7 @@ type Model struct {
 	InputPrompt   string
 	InputValue    string
 	InputField    string
+	InputCursor   int // Cursor position within the input field
 	FormData      map[string]string
 	CurrentAction int
 	ServiceStatus map[string]bool // Track installation status of services

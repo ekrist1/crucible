@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -20,6 +21,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.State = StateMenu
 			m.InputValue = ""
 			m.InputPrompt = ""
+			m.InputCursor = 0
 			m.Cursor = 0 // Reset cursor when canceling input
 			return m, tea.ClearScreen
 		case "enter":
@@ -27,12 +29,57 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.FormData[m.InputField] = m.InputValue
 			return m.processFormInput()
 		case "backspace":
-			if len(m.InputValue) > 0 {
-				m.InputValue = m.InputValue[:len(m.InputValue)-1]
+			if m.InputCursor > 0 {
+				// Remove character before cursor
+				m.InputValue = m.InputValue[:m.InputCursor-1] + m.InputValue[m.InputCursor:]
+				m.InputCursor--
+			}
+		case "delete":
+			if m.InputCursor < len(m.InputValue) {
+				// Remove character at cursor
+				m.InputValue = m.InputValue[:m.InputCursor] + m.InputValue[m.InputCursor+1:]
+			}
+		case "left":
+			if m.InputCursor > 0 {
+				m.InputCursor--
+			}
+		case "right":
+			if m.InputCursor < len(m.InputValue) {
+				m.InputCursor++
+			}
+		case "home", "ctrl+a":
+			m.InputCursor = 0
+		case "end", "ctrl+e":
+			m.InputCursor = len(m.InputValue)
+		case "ctrl+u":
+			// Delete from cursor to beginning of line
+			m.InputValue = m.InputValue[m.InputCursor:]
+			m.InputCursor = 0
+		case "ctrl+k":
+			// Delete from cursor to end of line
+			m.InputValue = m.InputValue[:m.InputCursor]
+		case "ctrl+w":
+			// Delete word before cursor
+			if m.InputCursor > 0 {
+				// Find start of word
+				start := m.InputCursor - 1
+				for start > 0 && unicode.IsSpace(rune(m.InputValue[start])) {
+					start--
+				}
+				for start > 0 && !unicode.IsSpace(rune(m.InputValue[start-1])) {
+					start--
+				}
+				m.InputValue = m.InputValue[:start] + m.InputValue[m.InputCursor:]
+				m.InputCursor = start
 			}
 		default:
-			// Add character to input
-			m.InputValue += msg.String()
+			// Only add printable characters
+			key := msg.String()
+			if len(key) == 1 && unicode.IsPrint(rune(key[0])) {
+				// Insert character at cursor position
+				m.InputValue = m.InputValue[:m.InputCursor] + key + m.InputValue[m.InputCursor:]
+				m.InputCursor++
+			}
 		}
 	}
 
@@ -77,8 +124,9 @@ func (m Model) StartInput(prompt, field string, action int) (Model, tea.Cmd) {
 	m.InputPrompt = prompt
 	m.InputField = field
 	m.InputValue = ""
+	m.InputCursor = 0 // Reset input cursor to beginning
 	m.CurrentAction = action
-	m.Cursor = 0 // Reset cursor when starting input
+	m.Cursor = 0 // Reset menu cursor when starting input
 	return m, tea.ClearScreen
 }
 

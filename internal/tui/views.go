@@ -116,8 +116,19 @@ func (m Model) viewInput() string {
 		displayValue = strings.Repeat("*", len(m.InputValue))
 	}
 
-	s += InputStyle.Render(displayValue+"│") + "\n\n"
+	// Show text with cursor at correct position
+	var inputDisplay string
+	if m.InputCursor >= len(displayValue) {
+		// Cursor at end
+		inputDisplay = displayValue + "│"
+	} else {
+		// Cursor in middle
+		inputDisplay = displayValue[:m.InputCursor] + "│" + displayValue[m.InputCursor:]
+	}
+
+	s += InputStyle.Render(inputDisplay) + "\n\n"
 	s += "Press Enter to continue, Esc to cancel\n"
+	s += "Arrow keys to move cursor, Ctrl+A/E for home/end, Ctrl+U/K to delete line\n"
 	return s
 }
 
