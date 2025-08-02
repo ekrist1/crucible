@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"crucible/internal/actions"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,10 +63,19 @@ func (m Model) HandleLaravelSiteForm() (Model, tea.Cmd) {
 
 	case "gitRepo":
 		// Validate GitHub URL if provided
-		if m.InputValue != "" && !isValidGitURL(m.InputValue) {
-			m.Report = []string{WarnStyle.Render("❌ Invalid Git repository URL. Please use format: https://github.com/user/repo.git or git@github.com:user/repo.git")}
-			m.State = StateMenu
-			return m, nil
+		if m.InputValue != "" {
+			if !isValidGitURL(m.InputValue) {
+				m.Report = []string{WarnStyle.Render("❌ Invalid Git repository URL. Please use format: https://github.com/user/repo.git or git@github.com:user/repo.git")}
+				// Stay in input mode to allow retry
+				return m.StartInput("Enter Git repository URL (https://github.com/user/repo.git or git@github.com:user/repo.git, optional):", "gitRepo", 100)
+			}
+
+			// Test if repository is accessible before proceeding
+			if !isGitRepoAccessible(m.InputValue) {
+				m.Report = []string{WarnStyle.Render("❌ Repository not accessible or does not exist. Please check the URL and try again.")}
+				// Stay in input mode to allow retry
+				return m.StartInput("Enter Git repository URL (https://github.com/user/repo.git or git@github.com:user/repo.git, optional):", "gitRepo", 100)
+			}
 		}
 		m.FormData["gitRepo"] = m.InputValue
 		// TODO: Connect to actions package
@@ -283,6 +295,28 @@ func isValidGitURL(url string) bool {
 	httpsNoGitRegex := regexp.MustCompile(httpsNoGitPattern)
 
 	return httpsRegex.MatchString(url) || sshRegex.MatchString(url) || httpsNoGitRegex.MatchString(url)
+}
+
+// isGitRepoAccessible tests if a Git repository is accessible without cloning
+func isGitRepoAccessible(url string) bool {
+	// Use git ls-remote to check if repository exists and is accessible
+	// This is faster than cloning and doesn't require local storage
+	cmd := exec.Command("git", "ls-remote", "--heads", url)
+
+	// Set a timeout to avoid hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, "git", "ls-remote", "--heads", url)
+
+	// Capture both stdout and stderr
+	output, err := cmd.CombinedOutput()
+
+	// If command succeeds and we get some output, repository is accessible
+	if err == nil && len(output) > 0 {
+		return true
+	}
+
+	return false
 }
 
 // Action functions - these now use the actions packages to get command sequences

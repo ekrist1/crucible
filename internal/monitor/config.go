@@ -234,19 +234,19 @@ func (c *Config) IsSystemMetricEnabled(metric string) bool {
 	if !c.Collectors.System.Enabled {
 		return false
 	}
-	
+
 	// If no specific metrics are configured, enable all
 	if len(c.Collectors.System.Metrics) == 0 {
 		return true
 	}
-	
+
 	// Check if the metric is in the enabled list
 	for _, enabledMetric := range c.Collectors.System.Metrics {
 		if enabledMetric == metric {
 			return true
 		}
 	}
-	
+
 	return false
 }
 

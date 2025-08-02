@@ -31,22 +31,22 @@ func NewServer(config *monitor.Config, logger *logging.Logger, agent *Agent) *Se
 // Start starts the HTTP API server
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
-	
+
 	// Health and status endpoints
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
-	
+
 	// Metrics endpoints
 	mux.HandleFunc("/api/v1/metrics/system", s.handleSystemMetrics)
 	mux.HandleFunc("/api/v1/metrics/services", s.handleServiceMetrics)
 	mux.HandleFunc("/api/v1/metrics/http", s.handleHTTPMetrics)
-	
+
 	// Configuration endpoints
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
-	
+
 	// CORS middleware for development
 	handler := s.corsMiddleware(mux)
-	
+
 	s.server = &http.Server{
 		Addr:         s.config.Agent.ListenAddr,
 		Handler:      handler,
@@ -56,11 +56,11 @@ func (s *Server) Start() error {
 	}
 
 	s.logger.Info("Starting monitoring API server", "addr", s.config.Agent.ListenAddr)
-	
+
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -76,12 +76,12 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -207,13 +207,13 @@ func (s *Server) getCollectorStatus() map[string]interface{} {
 			"last_collect": s.agent.GetLastSystemCollect(),
 		},
 		"services": map[string]interface{}{
-			"enabled":       s.config.Collectors.Services.Enabled,
-			"interval":      s.config.Collectors.Services.Interval,
+			"enabled":        s.config.Collectors.Services.Enabled,
+			"interval":       s.config.Collectors.Services.Interval,
 			"services_count": len(s.config.Collectors.Services.Services),
-			"last_collect":  s.agent.GetLastServicesCollect(),
+			"last_collect":   s.agent.GetLastServicesCollect(),
 		},
 		"http_checks": map[string]interface{}{
-			"enabled":     s.config.Collectors.HTTPChecks.Enabled,
+			"enabled":      s.config.Collectors.HTTPChecks.Enabled,
 			"checks_count": len(s.config.Collectors.HTTPChecks.Checks),
 			"last_collect": s.agent.GetLastHTTPChecksCollect(),
 		},
@@ -223,7 +223,7 @@ func (s *Server) getCollectorStatus() map[string]interface{} {
 // writeJSONResponse writes a JSON response
 func (s *Server) writeJSONResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

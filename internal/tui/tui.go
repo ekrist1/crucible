@@ -104,9 +104,9 @@ type Model struct {
 	QueueIndex       int      // Current command index
 	QueueServiceName string   // Service name for queue
 	// Service list state
-	ServiceList list.Model            // Service management list
-	Services    []actions.ServiceInfo // Parsed services
-	ReturnToServiceList bool          // Flag to return to service list instead of main menu
+	ServiceList         list.Model            // Service management list
+	Services            []actions.ServiceInfo // Parsed services
+	ReturnToServiceList bool                  // Flag to return to service list instead of main menu
 }
 
 var (
@@ -2059,7 +2059,7 @@ func (m *Model) showServiceStatusResults(serviceName, output string) {
 		InfoStyle.Render("Service Status Details:"),
 		"",
 	}
-	
+
 	// Add the status output
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for _, line := range lines {
@@ -2067,7 +2067,7 @@ func (m *Model) showServiceStatusResults(serviceName, output string) {
 			m.Report = append(m.Report, ChoiceStyle.Render(line))
 		}
 	}
-	
+
 	m.Report = append(m.Report, "",
 		InfoStyle.Render("Press any key to return to service list..."),
 	)
@@ -2078,7 +2078,7 @@ func (m *Model) showServiceActionResults(serviceName, action, output string) {
 	m.State = StateProcessing
 	m.ProcessingMsg = ""
 	m.ReturnToServiceList = true // Flag to return to service list
-	
+
 	// Determine icon based on action
 	actionIcon := "⚙️"
 	actionDesc := action
@@ -2093,14 +2093,14 @@ func (m *Model) showServiceActionResults(serviceName, action, output string) {
 		actionIcon = "🔄"
 		actionDesc = "Restarted"
 	}
-	
+
 	m.Report = []string{
 		TitleStyle.Render(fmt.Sprintf("%s Service %s: %s", actionIcon, actionDesc, serviceName)),
 		"",
 		InfoStyle.Render("Command executed successfully!"),
 		"",
 	}
-	
+
 	// Add any output if available
 	if strings.TrimSpace(output) != "" {
 		m.Report = append(m.Report, InfoStyle.Render("Output:"))
@@ -2112,7 +2112,7 @@ func (m *Model) showServiceActionResults(serviceName, action, output string) {
 		}
 		m.Report = append(m.Report, "")
 	}
-	
+
 	m.Report = append(m.Report,
 		InfoStyle.Render("Press any key to return to service list..."),
 	)
@@ -2150,21 +2150,21 @@ func (m Model) fetchSystemMetrics() []string {
 	}
 
 	var result []string
-	
+
 	// CPU metrics
 	result = append(result, fmt.Sprintf("  CPU Usage: %.1f%% (User: %.1f%%, System: %.1f%%, I/O Wait: %.1f%%)",
 		metrics.CPU.UsagePercent, metrics.CPU.UserPercent, metrics.CPU.SystemPercent, metrics.CPU.IOWaitPercent))
-	
+
 	// Memory metrics
 	memUsedGB := float64(metrics.Memory.UsedBytes) / (1024 * 1024 * 1024)
 	memTotalGB := float64(metrics.Memory.TotalBytes) / (1024 * 1024 * 1024)
 	result = append(result, fmt.Sprintf("  Memory: %.1fGB/%.1fGB (%.1f%%) | Swap: %.1f%%",
 		memUsedGB, memTotalGB, metrics.Memory.UsagePercent, metrics.Memory.SwapUsagePercent))
-	
+
 	// Load average
 	result = append(result, fmt.Sprintf("  Load Average: %.2f, %.2f, %.2f",
 		metrics.Load.Load1, metrics.Load.Load5, metrics.Load.Load15))
-	
+
 	// Disk usage for main partitions
 	for _, disk := range metrics.Disk {
 		if disk.MountPoint == "/" || disk.MountPoint == "/home" {
@@ -2174,7 +2174,7 @@ func (m Model) fetchSystemMetrics() []string {
 				disk.MountPoint, usedGB, totalGB, disk.UsagePercent))
 		}
 	}
-	
+
 	// Network stats (top interfaces)
 	for i, net := range metrics.Network {
 		if i >= 2 { // Limit to top 2 interfaces
@@ -2204,16 +2204,16 @@ func (m Model) fetchServiceMetrics() []string {
 	}
 
 	var result []string
-	
+
 	// Group services by category
 	categories := map[string][]monitor.ServiceStatus{
-		"database":     {},
-		"webserver":    {},
-		"runtime":      {},
-		"security":     {},
-		"system":       {},
+		"database":  {},
+		"webserver": {},
+		"runtime":   {},
+		"security":  {},
+		"system":    {},
 	}
-	
+
 	for _, service := range services {
 		category := "system"
 		if cat, exists := service.Metadata["category"]; exists {
@@ -2221,7 +2221,7 @@ func (m Model) fetchServiceMetrics() []string {
 		}
 		categories[category] = append(categories[category], service)
 	}
-	
+
 	// Display important categories first
 	for _, category := range []string{"database", "webserver", "runtime", "security"} {
 		if len(categories[category]) > 0 {
@@ -2232,14 +2232,14 @@ func (m Model) fetchServiceMetrics() []string {
 				} else if service.Active == "active" {
 					status = "⚠️"
 				}
-				
+
 				uptime := time.Since(service.Since)
 				result = append(result, fmt.Sprintf("  %s %s (%s) - Up: %s",
 					status, service.Name, service.Sub, formatDuration(uptime)))
 			}
 		}
 	}
-	
+
 	// Show count of other services
 	otherCount := len(categories["system"])
 	if otherCount > 0 {
@@ -2276,10 +2276,10 @@ func (m Model) fetchHTTPMetrics() []string {
 		if check.Success {
 			status = "✅"
 		}
-		
+
 		result = append(result, fmt.Sprintf("  %s %s - %dms (Status: %d)",
 			status, check.Name, check.ResponseTime.Milliseconds(), check.StatusCode))
-		
+
 		if check.Error != "" {
 			// Simplify connection refused errors
 			errorMsg := check.Error

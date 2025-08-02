@@ -86,7 +86,7 @@ func (s *ServicesCollector) getServiceStatus(serviceName string) (monitor.Servic
 	}
 
 	// Get service status using systemctl show
-	cmd := exec.Command("systemctl", "show", fullServiceName, 
+	cmd := exec.Command("systemctl", "show", fullServiceName,
 		"--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp,NRestarts,ExecMainStartTimestamp")
 	output, err := cmd.Output()
 	if err != nil {

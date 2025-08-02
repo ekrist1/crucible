@@ -8,14 +8,14 @@ import (
 type MetricType string
 
 const (
-	MetricTypeCPU        MetricType = "cpu"
-	MetricTypeMemory     MetricType = "memory"
-	MetricTypeDisk       MetricType = "disk"
-	MetricTypeNetwork    MetricType = "network"
-	MetricTypeLoad       MetricType = "load"
-	MetricTypeService    MetricType = "service"
-	MetricTypeHTTP       MetricType = "http"
-	MetricTypeCustom     MetricType = "custom"
+	MetricTypeCPU     MetricType = "cpu"
+	MetricTypeMemory  MetricType = "memory"
+	MetricTypeDisk    MetricType = "disk"
+	MetricTypeNetwork MetricType = "network"
+	MetricTypeLoad    MetricType = "load"
+	MetricTypeService MetricType = "service"
+	MetricTypeHTTP    MetricType = "http"
+	MetricTypeCustom  MetricType = "custom"
 )
 
 // Metric represents a single metric data point
@@ -31,57 +31,57 @@ type Metric struct {
 
 // ServiceStatus represents the status of a monitored service
 type ServiceStatus struct {
-	Name        string            `json:"name"`
-	Status      string            `json:"status"`      // loaded, failed, etc.
-	Active      string            `json:"active"`      // active, inactive, failed
-	Sub         string            `json:"sub"`         // running, dead, exited, etc.
-	Since       time.Time         `json:"since"`       // Time since current state
-	RestartCount int              `json:"restart_count"`
-	LastRestart time.Time         `json:"last_restart"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Name         string            `json:"name"`
+	Status       string            `json:"status"` // loaded, failed, etc.
+	Active       string            `json:"active"` // active, inactive, failed
+	Sub          string            `json:"sub"`    // running, dead, exited, etc.
+	Since        time.Time         `json:"since"`  // Time since current state
+	RestartCount int               `json:"restart_count"`
+	LastRestart  time.Time         `json:"last_restart"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
 // HTTPCheckResult represents the result of an HTTP health check
 type HTTPCheckResult struct {
-	Name           string        `json:"name"`
-	URL            string        `json:"url"`
-	StatusCode     int           `json:"status_code"`
-	ResponseTime   time.Duration `json:"response_time"`
-	Success        bool          `json:"success"`
-	Error          string        `json:"error,omitempty"`
-	Timestamp      time.Time     `json:"timestamp"`
-	ContentLength  int64         `json:"content_length,omitempty"`
-	SSLExpiry      *time.Time    `json:"ssl_expiry,omitempty"`
+	Name          string        `json:"name"`
+	URL           string        `json:"url"`
+	StatusCode    int           `json:"status_code"`
+	ResponseTime  time.Duration `json:"response_time"`
+	Success       bool          `json:"success"`
+	Error         string        `json:"error,omitempty"`
+	Timestamp     time.Time     `json:"timestamp"`
+	ContentLength int64         `json:"content_length,omitempty"`
+	SSLExpiry     *time.Time    `json:"ssl_expiry,omitempty"`
 }
 
 // SystemMetrics represents system-wide metrics
 type SystemMetrics struct {
-	CPU        CPUMetrics     `json:"cpu"`
-	Memory     MemoryMetrics  `json:"memory"`
-	Disk       []DiskMetrics  `json:"disk"`
-	Network    []NetworkMetrics `json:"network"`
-	Load       LoadMetrics    `json:"load"`
-	Timestamp  time.Time      `json:"timestamp"`
+	CPU       CPUMetrics       `json:"cpu"`
+	Memory    MemoryMetrics    `json:"memory"`
+	Disk      []DiskMetrics    `json:"disk"`
+	Network   []NetworkMetrics `json:"network"`
+	Load      LoadMetrics      `json:"load"`
+	Timestamp time.Time        `json:"timestamp"`
 }
 
 // CPUMetrics represents CPU usage metrics
 type CPUMetrics struct {
-	UsagePercent float64 `json:"usage_percent"`
-	UserPercent  float64 `json:"user_percent"`
+	UsagePercent  float64 `json:"usage_percent"`
+	UserPercent   float64 `json:"user_percent"`
 	SystemPercent float64 `json:"system_percent"`
-	IdlePercent  float64 `json:"idle_percent"`
+	IdlePercent   float64 `json:"idle_percent"`
 	IOWaitPercent float64 `json:"iowait_percent"`
 }
 
 // MemoryMetrics represents memory usage metrics
 type MemoryMetrics struct {
-	TotalBytes     uint64  `json:"total_bytes"`
-	UsedBytes      uint64  `json:"used_bytes"`
-	FreeBytes      uint64  `json:"free_bytes"`
-	AvailableBytes uint64  `json:"available_bytes"`
-	UsagePercent   float64 `json:"usage_percent"`
-	SwapTotalBytes uint64  `json:"swap_total_bytes"`
-	SwapUsedBytes  uint64  `json:"swap_used_bytes"`
+	TotalBytes       uint64  `json:"total_bytes"`
+	UsedBytes        uint64  `json:"used_bytes"`
+	FreeBytes        uint64  `json:"free_bytes"`
+	AvailableBytes   uint64  `json:"available_bytes"`
+	UsagePercent     float64 `json:"usage_percent"`
+	SwapTotalBytes   uint64  `json:"swap_total_bytes"`
+	SwapUsedBytes    uint64  `json:"swap_used_bytes"`
 	SwapUsagePercent float64 `json:"swap_usage_percent"`
 }
 
@@ -147,9 +147,9 @@ const (
 type AlertStatus string
 
 const (
-	AlertStatusActive      AlertStatus = "active"
+	AlertStatusActive       AlertStatus = "active"
 	AlertStatusAcknowledged AlertStatus = "acknowledged"
-	AlertStatusResolved    AlertStatus = "resolved"
+	AlertStatusResolved     AlertStatus = "resolved"
 )
 
 // Config represents the monitoring configuration
@@ -164,16 +164,16 @@ type Config struct {
 
 // AgentConfig represents agent-specific configuration
 type AgentConfig struct {
-	ListenAddr      string        `yaml:"listen_addr"`
-	DataRetention   string        `yaml:"data_retention"`
-	CollectInterval string        `yaml:"collect_interval"`
-	Debug           bool          `yaml:"debug"`
+	ListenAddr      string `yaml:"listen_addr"`
+	DataRetention   string `yaml:"data_retention"`
+	CollectInterval string `yaml:"collect_interval"`
+	Debug           bool   `yaml:"debug"`
 }
 
 // CollectorsConfig represents collector configuration
 type CollectorsConfig struct {
-	System     SystemCollectorConfig `yaml:"system"`
-	Services   ServicesCollectorConfig `yaml:"services"`
+	System     SystemCollectorConfig     `yaml:"system"`
+	Services   ServicesCollectorConfig   `yaml:"services"`
 	HTTPChecks HTTPChecksCollectorConfig `yaml:"http_checks"`
 }
 
@@ -208,9 +208,9 @@ type HTTPCheck struct {
 
 // StorageConfig represents storage configuration
 type StorageConfig struct {
-	Type        string              `yaml:"type"`
-	SQLite      SQLiteConfig        `yaml:"sqlite"`
-	Aggregation AggregationConfig   `yaml:"aggregation"`
+	Type        string            `yaml:"type"`
+	SQLite      SQLiteConfig      `yaml:"sqlite"`
+	Aggregation AggregationConfig `yaml:"aggregation"`
 }
 
 // SQLiteConfig represents SQLite storage configuration
@@ -227,9 +227,9 @@ type AggregationConfig struct {
 
 // AlertsConfig represents alerting configuration
 type AlertsConfig struct {
-	Enabled       bool                   `yaml:"enabled"`
-	Thresholds    AlertThresholds        `yaml:"thresholds"`
-	CheckInterval string                 `yaml:"check_interval"`
+	Enabled       bool            `yaml:"enabled"`
+	Thresholds    AlertThresholds `yaml:"thresholds"`
+	CheckInterval string          `yaml:"check_interval"`
 }
 
 // AlertThresholds represents alert threshold configuration
@@ -267,16 +267,16 @@ type WebhookConfig struct {
 
 // AIConfig represents AI/ML configuration
 type AIConfig struct {
-	Enabled           bool                    `yaml:"enabled"`
-	AnomalyDetection  AnomalyDetectionConfig  `yaml:"anomaly_detection"`
+	Enabled            bool                     `yaml:"enabled"`
+	AnomalyDetection   AnomalyDetectionConfig   `yaml:"anomaly_detection"`
 	PatternRecognition PatternRecognitionConfig `yaml:"pattern_recognition"`
 }
 
 // AnomalyDetectionConfig represents anomaly detection configuration
 type AnomalyDetectionConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	Sensitivity     string `yaml:"sensitivity"`
-	LearningPeriod  string `yaml:"learning_period"`
+	Enabled        bool   `yaml:"enabled"`
+	Sensitivity    string `yaml:"sensitivity"`
+	LearningPeriod string `yaml:"learning_period"`
 }
 
 // PatternRecognitionConfig represents pattern recognition configuration

@@ -85,7 +85,7 @@ func ControlService(config ServiceActionConfig) ([]string, []string, error) {
 func GetCommonServices() []string {
 	return []string{
 		"apache2",
-		"nginx", 
+		"nginx",
 		"caddy",
 		"mysql",
 		"mariadb",
@@ -105,13 +105,13 @@ func GetCommonServices() []string {
 func ParseServiceList(output string) []ServiceInfo {
 	var services []ServiceInfo
 	lines := strings.Split(output, "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "UNIT") || strings.HasPrefix(line, "●") {
 			continue
 		}
-		
+
 		fields := strings.Fields(line)
 		if len(fields) >= 4 && strings.HasSuffix(fields[0], ".service") {
 			services = append(services, ServiceInfo{
@@ -122,6 +122,6 @@ func ParseServiceList(output string) []ServiceInfo {
 			})
 		}
 	}
-	
+
 	return services
 }

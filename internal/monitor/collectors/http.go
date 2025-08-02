@@ -150,12 +150,12 @@ func (h *HTTPCollector) GetSSLCertificateInfo(url string) (map[string]interface{
 
 	cert := resp.TLS.PeerCertificates[0]
 	info := map[string]interface{}{
-		"subject":     cert.Subject.String(),
-		"issuer":      cert.Issuer.String(),
-		"not_before":  cert.NotBefore,
-		"not_after":   cert.NotAfter,
-		"dns_names":   cert.DNSNames,
-		"is_expired":  time.Now().After(cert.NotAfter),
+		"subject":           cert.Subject.String(),
+		"issuer":            cert.Issuer.String(),
+		"not_before":        cert.NotBefore,
+		"not_after":         cert.NotAfter,
+		"dns_names":         cert.DNSNames,
+		"is_expired":        time.Now().After(cert.NotAfter),
 		"days_until_expiry": int(time.Until(cert.NotAfter).Hours() / 24),
 	}
 

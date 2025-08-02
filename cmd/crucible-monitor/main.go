@@ -53,7 +53,7 @@ func main() {
 		config.Agent.Debug = true
 	}
 
-	logger.Info("Configuration loaded successfully", 
+	logger.Info("Configuration loaded successfully",
 		"listen_addr", config.Agent.ListenAddr,
 		"data_retention", config.Agent.DataRetention,
 		"collect_interval", config.Agent.CollectInterval,

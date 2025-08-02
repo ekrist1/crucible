@@ -17,24 +17,24 @@ type Agent struct {
 	server    *Server
 	startTime time.Time
 	mu        sync.RWMutex
-	
+
 	// Data storage
-	systemMetrics       *monitor.SystemMetrics
-	serviceMetrics      []monitor.ServiceStatus
-	httpCheckResults    []monitor.HTTPCheckResult
-	metricsCount        int64
-	activeAlertsCount   int
-	
+	systemMetrics     *monitor.SystemMetrics
+	serviceMetrics    []monitor.ServiceStatus
+	httpCheckResults  []monitor.HTTPCheckResult
+	metricsCount      int64
+	activeAlertsCount int
+
 	// Collectors
 	systemCollector   *collectors.SystemCollector
 	servicesCollector *collectors.ServicesCollector
 	httpCollector     *collectors.HTTPCollector
-	
+
 	// Collection timestamps
 	lastSystemCollect     *time.Time
 	lastServicesCollect   *time.Time
 	lastHTTPChecksCollect *time.Time
-	
+
 	// Context for graceful shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -43,7 +43,7 @@ type Agent struct {
 // NewAgent creates a new monitoring agent
 func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	agent := &Agent{
 		config:    config,
 		logger:    logger,
@@ -51,48 +51,48 @@ func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	
+
 	// Initialize collectors
 	agent.systemCollector = collectors.NewSystemCollector()
 	agent.servicesCollector = collectors.NewServicesCollector(config.Collectors.Services.Services)
 	agent.httpCollector = collectors.NewHTTPCollector()
-	
+
 	// Create HTTP server
 	agent.server = NewServer(config, logger, agent)
-	
+
 	return agent
 }
 
 // Start starts the monitoring agent
 func (a *Agent) Start() error {
 	a.logger.Info("Starting monitoring agent")
-	
+
 	// Start background collectors
 	a.startCollectors()
-	
+
 	// Start HTTP API server
 	if err := a.server.Start(); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
 // Stop gracefully stops the monitoring agent
 func (a *Agent) Stop() error {
 	a.logger.Info("Stopping monitoring agent")
-	
+
 	// Cancel context to stop collectors
 	a.cancel()
-	
+
 	// Stop HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := a.server.Stop(ctx); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -102,12 +102,12 @@ func (a *Agent) startCollectors() {
 	if a.config.Collectors.System.Enabled {
 		go a.systemCollectorLoop()
 	}
-	
+
 	// Start service metrics collector
 	if a.config.Collectors.Services.Enabled {
 		go a.servicesCollectorLoop()
 	}
-	
+
 	// Start HTTP checks collector
 	if a.config.Collectors.HTTPChecks.Enabled && len(a.config.Collectors.HTTPChecks.Checks) > 0 {
 		go a.httpChecksCollectorLoop()
@@ -118,10 +118,10 @@ func (a *Agent) startCollectors() {
 func (a *Agent) systemCollectorLoop() {
 	ticker := time.NewTicker(a.config.GetSystemCollectorInterval())
 	defer ticker.Stop()
-	
+
 	// Collect immediately on start
 	a.collectSystemMetrics()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -136,10 +136,10 @@ func (a *Agent) systemCollectorLoop() {
 func (a *Agent) servicesCollectorLoop() {
 	ticker := time.NewTicker(a.config.GetServicesCollectorInterval())
 	defer ticker.Stop()
-	
+
 	// Collect immediately on start
 	a.collectServiceMetrics()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -162,10 +162,10 @@ func (a *Agent) httpChecksCollectorLoop() {
 func (a *Agent) httpCheckLoop(check monitor.HTTPCheck) {
 	ticker := time.NewTicker(check.GetInterval())
 	defer ticker.Stop()
-	
+
 	// Check immediately on start
 	a.performHTTPCheck(check)
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -179,13 +179,13 @@ func (a *Agent) httpCheckLoop(check monitor.HTTPCheck) {
 // collectSystemMetrics collects current system metrics
 func (a *Agent) collectSystemMetrics() {
 	a.logger.Debug("Collecting system metrics")
-	
+
 	metrics, err := a.systemCollector.Collect()
 	if err != nil {
 		a.logger.Error("Failed to collect system metrics", "error", err)
 		return
 	}
-	
+
 	a.mu.Lock()
 	a.systemMetrics = metrics
 	now := time.Now()
@@ -197,13 +197,13 @@ func (a *Agent) collectSystemMetrics() {
 // collectServiceMetrics collects current service metrics
 func (a *Agent) collectServiceMetrics() {
 	a.logger.Debug("Collecting service metrics")
-	
+
 	services, err := a.servicesCollector.Collect()
 	if err != nil {
 		a.logger.Error("Failed to collect service metrics", "error", err)
 		return
 	}
-	
+
 	a.mu.Lock()
 	a.serviceMetrics = services
 	now := time.Now()
@@ -214,9 +214,9 @@ func (a *Agent) collectServiceMetrics() {
 // performHTTPCheck performs a single HTTP health check
 func (a *Agent) performHTTPCheck(check monitor.HTTPCheck) {
 	a.logger.Debug("Performing HTTP check", "name", check.Name, "url", check.URL)
-	
+
 	result := a.httpCollector.PerformCheck(check)
-	
+
 	a.mu.Lock()
 	// Update or append result
 	found := false
@@ -251,11 +251,11 @@ func (a *Agent) GetStartTime() time.Time {
 func (a *Agent) GetSystemMetrics() (*monitor.SystemMetrics, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	
+
 	if a.systemMetrics == nil {
 		return nil, nil // No data yet
 	}
-	
+
 	// Return a copy to avoid data races
 	metrics := *a.systemMetrics
 	return &metrics, nil
@@ -265,7 +265,7 @@ func (a *Agent) GetSystemMetrics() (*monitor.SystemMetrics, error) {
 func (a *Agent) GetServiceMetrics() ([]monitor.ServiceStatus, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	
+
 	// Return a copy to avoid data races
 	services := make([]monitor.ServiceStatus, len(a.serviceMetrics))
 	copy(services, a.serviceMetrics)
@@ -276,7 +276,7 @@ func (a *Agent) GetServiceMetrics() ([]monitor.ServiceStatus, error) {
 func (a *Agent) GetHTTPCheckResults() ([]monitor.HTTPCheckResult, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	
+
 	// Return a copy to avoid data races
 	results := make([]monitor.HTTPCheckResult, len(a.httpCheckResults))
 	copy(results, a.httpCheckResults)

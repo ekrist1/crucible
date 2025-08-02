@@ -92,10 +92,10 @@ func (s *SystemCollector) collectCPUMetrics() (monitor.CPUMetrics, error) {
 		}
 	}
 
-	user := times[0] + times[1]    // user + nice
-	system := times[2]             // system
-	idle := times[3]               // idle
-	iowait := times[4]             // iowait
+	user := times[0] + times[1] // user + nice
+	system := times[2]          // system
+	idle := times[3]            // idle
+	iowait := times[4]          // iowait
 	total := user + system + idle + iowait + times[5] + times[6] + times[7]
 
 	if total == 0 {
@@ -229,8 +229,8 @@ func (s *SystemCollector) collectDiskMetrics() ([]monitor.DiskMetrics, error) {
 			fsType := fields[2]
 
 			// Skip special filesystems
-			if strings.HasPrefix(device, "/dev/") && 
-				fsType != "tmpfs" && 
+			if strings.HasPrefix(device, "/dev/") &&
+				fsType != "tmpfs" &&
 				fsType != "devtmpfs" &&
 				fsType != "sysfs" &&
 				fsType != "proc" {
