@@ -177,7 +177,7 @@ func (s *ServicesCollector) getServiceMetadata(serviceName string) map[string]st
 
 	// Add service category and description for common services
 	switch serviceName {
-	case "mysql", "mariadb":
+	case "mysql", "mariadb", "mysqld":
 		metadata["category"] = "database"
 		metadata["description"] = "MySQL/MariaDB database server"
 	case "postgresql", "postgres":

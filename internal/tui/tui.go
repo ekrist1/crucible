@@ -35,6 +35,7 @@ const (
 	MenuCoreServices
 	MenuLaravelManagement
 	MenuServerManagement
+	MenuSettings
 )
 
 // Message types for async command execution
@@ -154,6 +155,7 @@ func NewModel() Model {
 			"Core Services",
 			"Laravel Management",
 			"Server Management",
+			"Settings",
 			"Exit",
 		},
 		Selected:      make(map[int]struct{}),
@@ -174,7 +176,10 @@ func NewModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.Spinner.Tick
+	return tea.Batch(
+		m.Spinner.Tick,
+		tea.EnableBracketedPaste,
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -87,7 +87,20 @@ func (m Model) enterSubmenu() (tea.Model, tea.Cmd) {
 		}
 		m.Cursor = 0
 		return m, tea.ClearScreen
-	case 3: // Exit
+	case 3: // Settings
+		m.State = StateSubmenu
+		m.CurrentMenu = MenuSettings
+		m.Choices = []string{
+			"Email Alert Configuration",
+			"API Keys Management",
+			"Test Email Notifications",
+			"View Current Settings",
+			"Reset to Defaults",
+			"Back to Main Menu",
+		}
+		m.Cursor = 0
+		return m, tea.ClearScreen
+	case 4: // Exit
 		return m, tea.Quit
 	}
 	return m, nil
@@ -136,6 +149,7 @@ func (m Model) returnToMainMenu() (tea.Model, tea.Cmd) {
 		"Core Services",
 		"Laravel Management",
 		"Server Management",
+		"Settings",
 		"Exit",
 	}
 	m.Cursor = 0
@@ -151,6 +165,8 @@ func (m Model) handleSubmenuSelection() (tea.Model, tea.Cmd) {
 		return m.handleLaravelManagementSelection()
 	case MenuServerManagement:
 		return m.handleServerManagementSelection()
+	case MenuSettings:
+		return m.handleSettingsSelection()
 	}
 	return m, nil
 }

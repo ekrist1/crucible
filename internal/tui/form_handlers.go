@@ -13,6 +13,23 @@ import (
 func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle paste events through KeyMsg with Paste flag
+		if msg.Paste {
+			pasteContent := msg.String()
+			if pasteContent != "" {
+				// Clean paste content (remove newlines and carriage returns for single-line input)
+				cleanContent := strings.ReplaceAll(pasteContent, "\n", "")
+				cleanContent = strings.ReplaceAll(cleanContent, "\r", "")
+				cleanContent = strings.ReplaceAll(cleanContent, "\t", " ")
+
+				// Insert paste content at cursor position
+				m.InputValue = m.InputValue[:m.InputCursor] + cleanContent + m.InputValue[m.InputCursor:]
+				m.InputCursor += len(cleanContent)
+			}
+			return m, nil
+		}
+
+		// Handle regular key events
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -110,6 +127,8 @@ func (m Model) processFormInput() (tea.Model, tea.Cmd) {
 		return m.handleGitHubActionInput()
 	case 400: // Service Control
 		return m.handleServiceControlInput()
+	case 500, 501, 502, 503, 504, 505, 506, 507: // Settings inputs
+		return m.handleSettingsInput()
 	}
 
 	// Default: return to menu

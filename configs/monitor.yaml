@@ -25,15 +25,15 @@ collectors:
   services:
     enabled: true
     interval: "60s"
-    # Services to monitor (empty = monitor all active services)
-    services: []
+    # Services to monitor (specific services for alert monitoring)
+    services: ["mysqld", "docker", "sshd", "firewalld", "NetworkManager"]
   
   # HTTP endpoint health checks
   http_checks:
-    enabled: false
+    enabled: true
     checks:
-      - name: "google"
-        url: "https://www.google.com"
+      - name: "uxvalidate"
+        url: "https://uxvalidate.com"
         interval: "60s"
         timeout: "10s"
         expected_status: 200
@@ -64,7 +64,7 @@ storage:
 
 # Alert configuration
 alerts:
-  enabled: false
+  enabled: true
   
   # Alert thresholds
   thresholds:

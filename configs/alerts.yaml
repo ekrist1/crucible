@@ -1,0 +1,210 @@
+# Crucible Alert System Configuration
+# This file configures the alert engine and notification system
+
+# Global alert settings
+evaluation_interval: 30s # How often to evaluate alert rules
+default_severity: warning # Default severity if not specified
+max_alert_history: 1000 # Maximum number of alerts to keep in history
+
+# Email notification configuration
+email:
+  enabled: true
+  from_email: "admin@altonline.no"
+  from_name: "Crucible Server Monitor"
+  default_to:
+    - "ekrist1@gmail.com"
+
+  # Custom email templates (optional)
+  subject_template: "🚨 [{{.Severity}}] {{.Name}}"
+  body_template: "" # Leave empty to use default template
+
+# Webhook configuration (optional)
+webhooks: []
+#  - name: "slack"
+#    enabled: false
+#    url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+#    method: "POST"
+#    timeout: 10s
+#    headers:
+#      Content-Type: "application/json"
+
+# Global rate limiting
+global_rate_limit:
+  max_per_hour: 50 # Maximum alerts per hour across all rules
+  cooldown_time: 5m # Minimum time between alerts of same type
+
+# Pre-configured alert rules
+rules:
+  # System Resource Alerts
+  - id: "high-cpu-usage"
+    name: "High CPU Usage"
+    type: "system"
+    severity: "warning"
+    enabled: true
+    conditions:
+      cpu_threshold: 80.0 # Alert when CPU usage > 80%
+      duration: 2m # Must be sustained for 2 minutes
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 10m # Don't spam - wait 10 min between notifications
+    max_notifications: 5 # Max 5 notifications per incident
+
+  - id: "critical-cpu-usage"
+    name: "Critical CPU Usage"
+    type: "system"
+    severity: "critical"
+    enabled: true
+    conditions:
+      cpu_threshold: 95.0 # Alert when CPU usage > 95%
+      duration: 1m # Must be sustained for 1 minute
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 10
+
+  - id: "high-memory-usage"
+    name: "High Memory Usage"
+    type: "system"
+    severity: "warning"
+    enabled: true
+    conditions:
+      memory_threshold: 85.0 # Alert when memory usage > 85%
+      duration: 5m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 15m
+    max_notifications: 3
+
+  - id: "critical-memory-usage"
+    name: "Critical Memory Usage"
+    type: "system"
+    severity: "critical"
+    enabled: true
+    conditions:
+      memory_threshold: 95.0 # Alert when memory usage > 95%
+      duration: 2m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 10
+
+  - id: "high-disk-usage"
+    name: "High Disk Usage"
+    type: "system"
+    severity: "warning"
+    enabled: true
+    conditions:
+      disk_threshold: 80.0 # Alert when disk usage > 80%
+      duration: 10m # Disk fills slower, longer duration
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 1h # Hourly notifications for disk space
+    max_notifications: 24
+
+  - id: "critical-disk-usage"
+    name: "Critical Disk Usage"
+    type: "system"
+    severity: "critical"
+    enabled: true
+    conditions:
+      disk_threshold: 95.0 # Alert when disk usage > 95%
+      duration: 5m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 15m
+    max_notifications: 20
+
+  - id: "high-load-average"
+    name: "High System Load"
+    type: "system"
+    severity: "warning"
+    enabled: true
+    conditions:
+      load_threshold: 4.0 # Alert when 1-min load > 4.0
+      duration: 5m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 10m
+    max_notifications: 5
+
+  # Service Status Alerts
+  - id: "mysql-service-down"
+    name: "MySQL Service Down"
+    type: "service"
+    severity: "critical"
+    enabled: true
+    conditions:
+      service_name: "mysqld" # Changed from 'mysql' to 'mysqld' for Fedora/RHEL systems
+      service_status: "active" # Alert when NOT active
+      duration: 1m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 10
+
+  - id: "caddy-service-down"
+    name: "Caddy Web Server Down"
+    type: "service"
+    severity: "critical"
+    enabled: false # Disabled since Caddy is not installed on this system
+    conditions:
+      service_name: "caddy"
+      service_status: "active"
+      duration: 1m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 10
+
+  - id: "php-fpm-service-down"
+    name: "PHP-FPM Service Down"
+    type: "service"
+    severity: "critical"
+    enabled: true
+    conditions:
+      service_name: "php8.4-fpm"
+      service_status: "active"
+      duration: 1m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 10
+
+  # HTTP Endpoint Alerts
+  - id: "website-down"
+    name: "Main Website Down"
+    type: "http"
+    severity: "critical"
+    enabled: false # Disabled by default - user must configure endpoint
+    conditions:
+      http_endpoint: "https://yoursite.com"
+      expected_status: 200
+      response_timeout: 10s
+      duration: 2m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 5m
+    max_notifications: 12
+
+  - id: "api-slow-response"
+    name: "API Slow Response Time"
+    type: "http"
+    severity: "warning"
+    enabled: false # Disabled by default
+    conditions:
+      http_endpoint: "https://api.yoursite.com/health"
+      response_timeout: 5s # Alert if response > 5 seconds
+      duration: 5m
+    notify_emails:
+      - "admin@yourdomain.com"
+    min_interval: 15m
+    max_notifications: 4
+
+# Examples of labels and annotations for advanced features
+labels:
+  environment: "production"
+  team: "infrastructure"
+
+annotations:
+  runbook_url: "https://docs.yourcompany.com/runbooks/server-alerts"
+  documentation: "https://docs.yourcompany.com/monitoring"

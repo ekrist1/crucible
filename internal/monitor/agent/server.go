@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"crucible/internal/logging"
@@ -40,6 +41,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/metrics/system", s.handleSystemMetrics)
 	mux.HandleFunc("/api/v1/metrics/services", s.handleServiceMetrics)
 	mux.HandleFunc("/api/v1/metrics/http", s.handleHTTPMetrics)
+
+	// Alert endpoints
+	mux.HandleFunc("/api/v1/alerts", s.handleAlerts)
+	mux.HandleFunc("/api/v1/alerts/", s.handleAlertActions)
 
 	// Configuration endpoints
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
@@ -186,6 +191,80 @@ func (s *Server) handleHTTPMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSONResponse(w, httpChecks)
+}
+
+// handleAlerts returns active alerts
+func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	alerts, err := s.agent.GetActiveAlerts()
+	if err != nil {
+		s.logger.Error("Failed to get active alerts", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSONResponse(w, alerts)
+}
+
+// handleAlertActions handles alert management actions (acknowledge, etc.)
+func (s *Server) handleAlertActions(w http.ResponseWriter, r *http.Request) {
+	// Extract alert ID from URL path
+	path := r.URL.Path
+	if len(path) <= len("/api/v1/alerts/") {
+		http.Error(w, "Alert ID required", http.StatusBadRequest)
+		return
+	}
+
+	alertID := path[len("/api/v1/alerts/"):]
+
+	// Remove trailing action if present (e.g., /acknowledge)
+	if idx := strings.Index(alertID, "/"); idx > 0 {
+		action := alertID[idx+1:]
+		alertID = alertID[:idx]
+
+		switch r.Method {
+		case http.MethodPost:
+			switch action {
+			case "acknowledge":
+				err := s.agent.AcknowledgeAlert(alertID)
+				if err != nil {
+					s.logger.Error("Failed to acknowledge alert", "alert_id", alertID, "error", err)
+					http.Error(w, "Failed to acknowledge alert", http.StatusInternalServerError)
+					return
+				}
+				s.writeJSONResponse(w, map[string]string{"status": "acknowledged"})
+			case "resolve":
+				err := s.agent.ResolveAlert(alertID)
+				if err != nil {
+					s.logger.Error("Failed to resolve alert", "alert_id", alertID, "error", err)
+					http.Error(w, "Failed to resolve alert", http.StatusInternalServerError)
+					return
+				}
+				s.writeJSONResponse(w, map[string]string{"status": "resolved"})
+			default:
+				http.Error(w, "Unknown action", http.StatusBadRequest)
+			}
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	} else {
+		// Get specific alert details
+		if r.Method == http.MethodGet {
+			alert, err := s.agent.GetAlert(alertID)
+			if err != nil {
+				s.logger.Error("Failed to get alert", "alert_id", alertID, "error", err)
+				http.Error(w, "Alert not found", http.StatusNotFound)
+				return
+			}
+			s.writeJSONResponse(w, alert)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
 }
 
 // handleConfig returns or updates the configuration

@@ -58,6 +58,8 @@ func (m Model) viewSubmenu() string {
 		title = "🚀 Laravel Management"
 	case MenuServerManagement:
 		title = "⚙️ Server Management"
+	case MenuSettings:
+		title = "⚙️ Settings"
 	}
 
 	s := TitleStyle.Render(title) + "\n\n"

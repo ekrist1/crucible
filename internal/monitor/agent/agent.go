@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"crucible/internal/logging"
 	"crucible/internal/monitor"
+	"crucible/internal/monitor/alerts"
 	"crucible/internal/monitor/collectors"
 )
 
@@ -29,6 +31,9 @@ type Agent struct {
 	systemCollector   *collectors.SystemCollector
 	servicesCollector *collectors.ServicesCollector
 	httpCollector     *collectors.HTTPCollector
+
+	// Alert manager
+	alertManager *alerts.AlertManager
 
 	// Collection timestamps
 	lastSystemCollect     *time.Time
@@ -56,6 +61,26 @@ func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
 	agent.systemCollector = collectors.NewSystemCollector()
 	agent.servicesCollector = collectors.NewServicesCollector(config.Collectors.Services.Services)
 	agent.httpCollector = collectors.NewHTTPCollector()
+
+	// Initialize alert manager if alerts are enabled
+	if config.Alerts.Enabled {
+		alertConfig, err := alerts.LoadConfig("configs/alerts.yaml")
+		if err != nil {
+			logger.Warn("Failed to load alert config, using defaults", "error", err)
+			alertConfig = alerts.CreateDefaultConfig()
+		}
+
+		alertRules, err := alerts.LoadRules("configs/alerts.yaml")
+		if err != nil {
+			logger.Warn("Failed to load alert rules", "error", err)
+			alertRules = []*alerts.AlertRule{}
+		}
+
+		agent.alertManager = alerts.NewAlertManager(alertConfig)
+		for _, rule := range alertRules {
+			agent.alertManager.AddRule(rule)
+		}
+	}
 
 	// Create HTTP server
 	agent.server = NewServer(config, logger, agent)
@@ -111,6 +136,11 @@ func (a *Agent) startCollectors() {
 	// Start HTTP checks collector
 	if a.config.Collectors.HTTPChecks.Enabled && len(a.config.Collectors.HTTPChecks.Checks) > 0 {
 		go a.httpChecksCollectorLoop()
+	}
+
+	// Start alert evaluation loop
+	if a.alertManager != nil {
+		go a.alertEvaluationLoop()
 	}
 }
 
@@ -316,4 +346,142 @@ func (a *Agent) GetLastHTTPChecksCollect() *time.Time {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.lastHTTPChecksCollect
+}
+
+// alertEvaluationLoop runs the alert evaluation loop
+func (a *Agent) alertEvaluationLoop() {
+	ticker := time.NewTicker(30 * time.Second) // Evaluate every 30 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.evaluateAlerts()
+		}
+	}
+}
+
+// evaluateAlerts evaluates all alert rules against current metrics
+func (a *Agent) evaluateAlerts() {
+	if a.alertManager == nil {
+		return
+	}
+
+	a.logger.Debug("Evaluating alert rules")
+
+	// Get current metrics
+	a.mu.RLock()
+	systemMetrics := a.systemMetrics
+	serviceMetrics := a.serviceMetrics
+	httpCheckResults := a.httpCheckResults
+	a.mu.RUnlock()
+
+	// Skip evaluation if we don't have enough data yet
+	if systemMetrics == nil {
+		return
+	}
+
+	// Create evaluation context
+	ctx := &alerts.EvaluationContext{
+		SystemMetrics: map[string]alerts.MetricData{
+			"cpu_usage": {
+				Timestamp: time.Now(),
+				Value:     systemMetrics.CPU.UsagePercent,
+				Labels:    map[string]string{"type": "cpu"},
+			},
+			"memory_usage": {
+				Timestamp: time.Now(),
+				Value:     systemMetrics.Memory.UsagePercent,
+				Labels:    map[string]string{"type": "memory"},
+			},
+			"load_1": {
+				Timestamp: time.Now(),
+				Value:     systemMetrics.Load.Load1,
+				Labels:    map[string]string{"type": "load"},
+			},
+		},
+		ServiceStates: make(map[string]string),
+		HTTPResults:   make(map[string]alerts.HTTPCheckResult),
+		CurrentTime:   time.Now(),
+	}
+
+	// Add disk usage metrics
+	for _, disk := range systemMetrics.Disk {
+		if disk.MountPoint == "/" {
+			ctx.SystemMetrics["disk_usage_root"] = alerts.MetricData{
+				Timestamp: time.Now(),
+				Value:     disk.UsagePercent,
+				Labels:    map[string]string{"type": "disk", "mount": "/"},
+			}
+		}
+	}
+
+	// Add service states
+	for _, service := range serviceMetrics {
+		status := "inactive"
+		if service.Active == "active" && service.Sub == "running" {
+			status = "active"
+		}
+		ctx.ServiceStates[service.Name] = status
+	}
+
+	// Add HTTP check results
+	for _, check := range httpCheckResults {
+		ctx.HTTPResults[check.Name] = alerts.HTTPCheckResult{
+			URL:          check.URL,
+			StatusCode:   check.StatusCode,
+			ResponseTime: check.ResponseTime,
+			Success:      check.Success,
+			Error:        check.Error,
+			Timestamp:    check.Timestamp,
+		}
+	}
+
+	// Evaluate rules
+	err := a.alertManager.EvaluateRules(ctx)
+	if err != nil {
+		a.logger.Error("Failed to evaluate alert rules", "error", err)
+	}
+
+	// Update active alerts count
+	a.mu.Lock()
+	activeAlerts := a.alertManager.GetActiveAlerts()
+	a.activeAlertsCount = len(activeAlerts)
+	a.mu.Unlock()
+}
+
+// Alert management methods for API endpoints
+
+// GetActiveAlerts returns all active alerts
+func (a *Agent) GetActiveAlerts() ([]*alerts.Alert, error) {
+	if a.alertManager == nil {
+		return []*alerts.Alert{}, nil
+	}
+	return a.alertManager.GetActiveAlerts(), nil
+}
+
+// GetAlert returns a specific alert by ID
+func (a *Agent) GetAlert(alertID string) (*alerts.Alert, error) {
+	if a.alertManager == nil {
+		return nil, fmt.Errorf("alert manager not initialized")
+	}
+	return a.alertManager.GetAlert(alertID)
+}
+
+// AcknowledgeAlert acknowledges an alert
+func (a *Agent) AcknowledgeAlert(alertID string) error {
+	if a.alertManager == nil {
+		return fmt.Errorf("alert manager not initialized")
+	}
+	return a.alertManager.AcknowledgeAlert(alertID)
+}
+
+// ResolveAlert manually resolves an alert
+func (a *Agent) ResolveAlert(alertID string) error {
+	if a.alertManager == nil {
+		return fmt.Errorf("alert manager not initialized")
+	}
+	return a.alertManager.ResolveAlert(alertID)
 }

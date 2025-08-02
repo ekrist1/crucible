@@ -48,6 +48,12 @@ func (m Model) showMonitoringDashboard() (tea.Model, tea.Cmd) {
 		httpMetrics := m.fetchHTTPMetrics()
 		m.Report = append(m.Report, InfoStyle.Render("🌐 HTTP Health Checks:"))
 		m.Report = append(m.Report, httpMetrics...)
+		m.Report = append(m.Report, "")
+
+		// Fetch active alerts
+		alertMetrics := m.fetchActiveAlerts()
+		m.Report = append(m.Report, InfoStyle.Render("🚨 Active Alerts:"))
+		m.Report = append(m.Report, alertMetrics...)
 	} else {
 		m.Report = append(m.Report, WarnStyle.Render("⚠️ Start monitoring agent with: ./crucible-monitor"))
 		m.Report = append(m.Report, WarnStyle.Render("⚠️ Or use: make run-monitor"))
@@ -228,6 +234,100 @@ func (m Model) fetchHTTPMetrics() []string {
 				errorMsg = "Request timeout"
 			}
 			result = append(result, fmt.Sprintf("    %s", errorMsg))
+		}
+	}
+
+	return result
+}
+
+// fetchActiveAlerts fetches active alerts from the monitoring agent
+func (m Model) fetchActiveAlerts() []string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:9090/api/v1/alerts")
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch alerts")}
+	}
+	defer resp.Body.Close()
+
+	// Define Alert struct for JSON unmarshaling (matching alerts package)
+	type Alert struct {
+		ID          string                 `json:"id"`
+		Name        string                 `json:"name"`
+		Type        string                 `json:"type"`
+		Severity    string                 `json:"severity"`
+		Status      string                 `json:"status"`
+		Message     string                 `json:"message"`
+		Details     map[string]interface{} `json:"details"`
+		Labels      map[string]string      `json:"labels"`
+		Annotations map[string]string      `json:"annotations"`
+		StartsAt    time.Time              `json:"starts_at"`
+		EndsAt      *time.Time             `json:"ends_at,omitempty"`
+		LastSent    *time.Time             `json:"last_sent,omitempty"`
+		RuleID      string                 `json:"rule_id"`
+	}
+
+	var alerts []Alert
+	if err := json.NewDecoder(resp.Body).Decode(&alerts); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse alerts")}
+	}
+
+	if len(alerts) == 0 {
+		return []string{
+			InfoStyle.Render("  ✅ No active alerts"),
+			ChoiceStyle.Render("  System is healthy"),
+		}
+	}
+
+	var result []string
+	for _, alert := range alerts {
+		// Get severity icon and color
+		var severityIcon string
+		var style = ChoiceStyle
+		switch alert.Severity {
+		case "critical":
+			severityIcon = "🚨"
+			style = WarnStyle
+		case "warning":
+			severityIcon = "⚠️"
+			style = WarnStyle
+		case "info":
+			severityIcon = "ℹ️"
+			style = InfoStyle
+		default:
+			severityIcon = "📋"
+		}
+
+		// Format alert duration
+		duration := time.Since(alert.StartsAt)
+		durationStr := formatDuration(duration)
+
+		// Status indicator
+		statusIcon := "🔥"
+		if alert.Status == "acknowledged" {
+			statusIcon = "✋"
+		} else if alert.Status == "resolved" {
+			statusIcon = "✅"
+		}
+
+		// Main alert line
+		result = append(result, style.Render(fmt.Sprintf("  %s %s [%s] %s (%s ago)",
+			statusIcon, severityIcon, strings.ToUpper(alert.Severity), alert.Name, durationStr)))
+
+		// Alert message
+		if alert.Message != "" {
+			result = append(result, ChoiceStyle.Render(fmt.Sprintf("    💬 %s", alert.Message)))
+		}
+
+		// Show alert details if available
+		if len(alert.Details) > 0 {
+			for key, value := range alert.Details {
+				result = append(result, ChoiceStyle.Render(fmt.Sprintf("    📊 %s: %v", key, value)))
+			}
+		}
+
+		// Add spacing between alerts
+		if len(alerts) > 1 {
+			result = append(result, "")
 		}
 	}
 
