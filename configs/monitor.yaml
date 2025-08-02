@@ -1,0 +1,110 @@
+# Crucible Monitoring Agent Configuration
+
+agent:
+  # HTTP API server configuration
+  listen_addr: "127.0.0.1:9090"
+  
+  # Data retention period
+  data_retention: "30d"
+  
+  # Default collection interval
+  collect_interval: "30s"
+  
+  # Enable debug logging
+  debug: false
+
+# Data collectors configuration
+collectors:
+  # System metrics (CPU, memory, disk, network)
+  system:
+    enabled: true
+    interval: "30s"
+    metrics: ["cpu", "memory", "disk", "network", "load"]
+  
+  # Systemd service monitoring
+  services:
+    enabled: true
+    interval: "60s"
+    # Services to monitor (empty = monitor all active services)
+    services: []
+  
+  # HTTP endpoint health checks
+  http_checks:
+    enabled: false
+    checks:
+      - name: "google"
+        url: "https://www.google.com"
+        interval: "60s"
+        timeout: "10s"
+        expected_status: 200
+      # Example for local Laravel app:
+      # - name: "my-laravel-site"
+      #   url: "http://my-site.local"
+      #   interval: "30s"
+      #   timeout: "5s"
+      #   expected_status: 200
+
+# Storage configuration  
+storage:
+  # Storage type: memory, sqlite
+  type: "memory"
+  
+  # For SQLite storage
+  sqlite:
+    path: "/var/lib/crucible/monitor.db"
+  
+  # Data aggregation settings
+  aggregation:
+    # Keep raw data for this period
+    raw_retention: "24h"
+    # Keep 1-minute averages for this period  
+    minute_retention: "7d"
+    # Keep 1-hour averages for this period
+    hour_retention: "30d"
+
+# Alert configuration
+alerts:
+  enabled: false
+  
+  # Alert thresholds
+  thresholds:
+    cpu_percent: 80.0
+    memory_percent: 90.0
+    disk_percent: 85.0
+    load_average: 5.0
+    response_time_ms: 5000
+  
+  # Alert evaluation interval
+  check_interval: "60s"
+
+# Notification channels (disabled by default)
+notifications:
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: []
+  
+  webhook:
+    enabled: false
+    url: ""
+    timeout: "10s"
+
+# AI/ML configuration (for future Charm Crush integration)
+ai:
+  enabled: false
+  
+  # Anomaly detection settings
+  anomaly_detection:
+    enabled: false
+    sensitivity: "medium" # low, medium, high
+    learning_period: "7d"
+  
+  # Pattern recognition
+  pattern_recognition:
+    enabled: false
+    min_pattern_length: "1h"
+    confidence_threshold: 0.8

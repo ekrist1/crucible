@@ -1,12 +1,19 @@
-.PHONY: build clean install test run
+.PHONY: build build-monitor clean install test run run-monitor
 
-# Build the application
+# Build the main TUI application
 build:
 	go build -o crucible .
 
+# Build the monitoring agent
+build-monitor:
+	go build -o crucible-monitor ./cmd/crucible-monitor
+
+# Build both applications
+build-all: build build-monitor
+
 # Clean build artifacts
 clean:
-	rm -f crucible
+	rm -f crucible crucible-monitor
 
 # Install dependencies
 install:
@@ -21,6 +28,10 @@ test:
 # Run the application (requires TTY)
 run: build
 	sudo ./crucible
+
+# Run the monitoring agent
+run-monitor: build-monitor
+	./crucible-monitor
 
 # Development build with race detection
 dev:
