@@ -1,0 +1,51 @@
+# Multi-stage Docker build for ARM
+FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+
+# Install build dependencies for cross-compilation
+RUN apk add --no-cache git ca-certificates gcc musl-dev
+
+# Build arguments
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+WORKDIR /app
+
+# Copy go modules
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build both binaries for target platform
+RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -a -ldflags='-w -s -extldflags "-static"' \
+    -o crucible .
+
+# Check if monitor command exists, if not copy main binary
+RUN if [ -d "./cmd/monitor" ]; then \
+        CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+        go build -a -ldflags='-w -s -extldflags "-static"' \
+        -o crucible-monitor ./cmd/monitor; \
+    else \
+        cp crucible crucible-monitor; \
+    fi
+
+# Final stage - minimal runtime
+FROM scratch
+
+# Copy CA certificates for HTTPS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy binaries
+COPY --from=builder /app/crucible /crucible
+COPY --from=builder /app/crucible-monitor /crucible-monitor
+
+# Copy config files
+COPY --from=builder /app/configs /configs
+
+EXPOSE 9090
+
+# Default to monitor, but can be overridden
+ENTRYPOINT ["/crucible-monitor"]
