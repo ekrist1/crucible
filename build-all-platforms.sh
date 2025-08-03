@@ -70,8 +70,8 @@ build_platform() {
         monitor_binary="$monitor_binary.exe"
     fi
     
-    if [ -d "./cmd/monitor" ]; then
-        eval "$build_cmd go build -a -ldflags=\"$LDFLAGS\" -o \"$monitor_binary\" ./cmd/monitor"
+    if [ -d "./cmd/crucible-monitor" ]; then
+        eval "$build_cmd go build -a -ldflags=\"$LDFLAGS\" -o \"$monitor_binary\" ./cmd/crucible-monitor"
     else
         cp "$crucible_binary" "$monitor_binary"
         echo "   📋 Copied from main binary (monitor functionality included)"

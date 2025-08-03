@@ -59,7 +59,7 @@ func NewSQLiteStorage(config *Config, logger *logging.Logger) (*SQLiteStorage, e
 		}
 	}
 
-	db, err := sql.Open("sqlite3", config.DatabasePath)
+	db, err := sql.Open(sqliteDriverName, config.DatabasePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

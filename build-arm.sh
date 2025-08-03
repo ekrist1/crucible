@@ -18,6 +18,7 @@ echo ""
 
 # Build flags for static linking
 LDFLAGS="-w -s -extldflags '-static' -X 'main.version=$VERSION' -X 'main.buildTime=$BUILD_TIME' -X 'main.gitCommit=$GIT_COMMIT'"
+MONITOR_LDFLAGS="-w -s -extldflags '-static'"  # Monitor uses constants, not variables for version info
 
 echo "🏗️  Building both crucible (TUI) and crucible-monitor (agent)..."
 echo "    Using CGO for better SQLite performance"
@@ -52,14 +53,14 @@ build_for_arch() {
     
     # Build crucible-monitor (monitoring agent)
     echo "   📊 Building crucible-monitor agent..."
-    if [ -d "./cmd/monitor" ]; then
+    if [ -d "./cmd/crucible-monitor" ]; then
         # Build from separate monitor command
         if [ -n "$goarm" ]; then
             env GOOS=linux GOARCH=$goarch GOARM=$goarm CGO_ENABLED=1 CC=$cc \
-                go build -a -ldflags="$LDFLAGS" -o "crucible-monitor-linux-$arch" ./cmd/monitor
+                go build -a -ldflags="$MONITOR_LDFLAGS" -o "crucible-monitor-linux-$arch" ./cmd/crucible-monitor
         else
             env GOOS=linux GOARCH=$goarch CGO_ENABLED=1 CC=$cc \
-                go build -a -ldflags="$LDFLAGS" -o "crucible-monitor-linux-$arch" ./cmd/monitor
+                go build -a -ldflags="$MONITOR_LDFLAGS" -o "crucible-monitor-linux-$arch" ./cmd/crucible-monitor
         fi
     else
         # Copy from main binary since monitor is part of main

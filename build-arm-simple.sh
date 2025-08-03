@@ -12,6 +12,7 @@ GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 # Linker flags for static binary
 LDFLAGS="-w -s -X 'main.version=$VERSION' -X 'main.buildTime=$BUILD_TIME' -X 'main.gitCommit=$GIT_COMMIT'"
+MONITOR_LDFLAGS="-w -s"  # Monitor uses constants, not variables for version info
 
 echo "📋 This build disables CGO, so SQLite will use pure Go implementation"
 echo "   Pros: Easy cross-compilation, no dependencies"
@@ -51,10 +52,10 @@ build_for_arch() {
     echo "   📊 Building crucible-monitor agent..."
     if [ -n "$goarm" ]; then
         env GOOS=linux GOARCH=$goarch GOARM=$goarm CGO_ENABLED=0 \
-            go build -a -ldflags="$LDFLAGS" -o "crucible-monitor-linux-$arch-nocgo" ./cmd/monitor
+            go build -a -ldflags="$MONITOR_LDFLAGS" -o "crucible-monitor-linux-$arch-nocgo" ./cmd/crucible-monitor
     else
         env GOOS=linux GOARCH=$goarch CGO_ENABLED=0 \
-            go build -a -ldflags="$LDFLAGS" -o "crucible-monitor-linux-$arch-nocgo" ./cmd/monitor
+            go build -a -ldflags="$MONITOR_LDFLAGS" -o "crucible-monitor-linux-$arch-nocgo" ./cmd/crucible-monitor
     fi
     
     if [ $? -eq 0 ]; then
@@ -69,8 +70,8 @@ build_for_arch() {
 }
 
 # Check if monitor command exists, if not build from main
-if [ ! -d "./cmd/monitor" ]; then
-    echo "📋 Note: cmd/monitor not found, building monitor from main package"
+if [ ! -d "./cmd/crucible-monitor" ]; then
+    echo "📋 Note: cmd/crucible-monitor not found, building monitor from main package"
     echo ""
     
     # Function to build both from main package

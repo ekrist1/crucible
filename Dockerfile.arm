@@ -24,10 +24,10 @@ RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     -o crucible .
 
 # Check if monitor command exists, if not copy main binary
-RUN if [ -d "./cmd/monitor" ]; then \
+RUN if [ -d "./cmd/crucible-monitor" ]; then \
         CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
         go build -a -ldflags='-w -s -extldflags "-static"' \
-        -o crucible-monitor ./cmd/monitor; \
+        -o crucible-monitor ./cmd/crucible-monitor; \
     else \
         cp crucible crucible-monitor; \
     fi

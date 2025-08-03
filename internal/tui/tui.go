@@ -223,7 +223,7 @@ func NewModel() Model {
 
 	m := Model{
 		Choices: []string{
-			"Core Services",
+			"Core Services (PHP, Node, Caddy, etc.)",
 			"Laravel Management",
 			"Server Management",
 			"Monitoring Dashboard",
@@ -362,7 +362,7 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.State = StateMenu
 				m.CurrentMenu = MenuMain
 				m.Choices = []string{
-					"Core Services",
+					"Core Services (PHP, Node, Caddy, etc.)",
 					"Laravel Management",
 					"Server Management",
 					"Monitoring Dashboard",
