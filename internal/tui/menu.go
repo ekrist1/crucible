@@ -87,7 +87,10 @@ func (m Model) enterSubmenu() (tea.Model, tea.Cmd) {
 		}
 		m.Cursor = 0
 		return m, tea.ClearScreen
-	case 3: // Settings
+	case 3: // Monitoring Dashboard
+		newModel, cmd := m.showMonitoringDashboard()
+		return newModel, tea.Batch(tea.ClearScreen, cmd)
+	case 4: // Settings
 		m.State = StateSubmenu
 		m.CurrentMenu = MenuSettings
 		m.Choices = []string{
@@ -100,7 +103,7 @@ func (m Model) enterSubmenu() (tea.Model, tea.Cmd) {
 		}
 		m.Cursor = 0
 		return m, tea.ClearScreen
-	case 4: // Exit
+	case 5: // Exit
 		return m, tea.Quit
 	}
 	return m, nil
@@ -146,9 +149,10 @@ func (m Model) returnToMainMenu() (tea.Model, tea.Cmd) {
 	m.State = StateMenu
 	m.CurrentMenu = MenuMain
 	m.Choices = []string{
-		"Core Services",
+		"Core Services (PHP, Node, Caddy, etc.)",
 		"Laravel Management",
 		"Server Management",
+		"Monitoring Dashboard",
 		"Settings",
 		"Exit",
 	}

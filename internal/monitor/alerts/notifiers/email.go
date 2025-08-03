@@ -1,50 +1,30 @@
 package notifiers
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"text/template"
-	"time"
+	"bytes"
+
+	"github.com/resend/resend-go/v2"
 )
 
 // EmailNotifier implements email notifications using Resend API
 type EmailNotifier struct {
 	config *EmailConfig
-	client *http.Client
-}
-
-// ResendEmailRequest represents the request structure for Resend API
-type ResendEmailRequest struct {
-	From    string              `json:"from"`
-	To      []string            `json:"to"`
-	Subject string              `json:"subject"`
-	HTML    string              `json:"html,omitempty"`
-	Text    string              `json:"text,omitempty"`
-	Headers map[string]string   `json:"headers,omitempty"`
-	Tags    []map[string]string `json:"tags,omitempty"`
-}
-
-// ResendEmailResponse represents the response from Resend API
-type ResendEmailResponse struct {
-	ID string `json:"id"`
-}
-
-// ResendErrorResponse represents error response from Resend API
-type ResendErrorResponse struct {
-	Name    string `json:"name"`
-	Message string `json:"message"`
+	client *resend.Client
 }
 
 // NewEmailNotifier creates a new email notifier using Resend
 func NewEmailNotifier(config *EmailConfig) *EmailNotifier {
+	var client *resend.Client
+	if config.ResendAPIKey != "" {
+		client = resend.NewClient(config.ResendAPIKey)
+	}
+	
 	return &EmailNotifier{
 		config: config,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client: client,
 	}
 }
 
@@ -55,13 +35,24 @@ func (e *EmailNotifier) Name() string {
 
 // IsEnabled returns whether email notifications are enabled
 func (e *EmailNotifier) IsEnabled() bool {
-	return e.config.Enabled && e.config.ResendAPIKey != ""
+	enabled := e.config.Enabled && e.config.ResendAPIKey != "" && e.client != nil
+	// Debug logging
+	fmt.Printf("DEBUG: EmailNotifier.IsEnabled() check:\n")
+	fmt.Printf("  config.Enabled: %v\n", e.config.Enabled)
+	fmt.Printf("  config.ResendAPIKey present: %v\n", e.config.ResendAPIKey != "")
+	fmt.Printf("  config.ResendAPIKey length: %d\n", len(e.config.ResendAPIKey))
+	fmt.Printf("  client initialized: %v\n", e.client != nil)
+	fmt.Printf("  Final enabled result: %v\n", enabled)
+	return enabled
 }
 
 // Send sends an alert notification via email using Resend
 func (e *EmailNotifier) Send(alert *Alert) error {
 	if !e.IsEnabled() {
-		return fmt.Errorf("email notifier is not enabled or configured")
+		// Log detailed information about why email is disabled
+		enabled := e.config.Enabled
+		hasAPIKey := e.config.ResendAPIKey != ""
+		return fmt.Errorf("email notifier is not enabled or configured (enabled: %v, has_api_key: %v)", enabled, hasAPIKey)
 	}
 
 	// Determine recipients
@@ -81,32 +72,32 @@ func (e *EmailNotifier) Send(alert *Alert) error {
 		return fmt.Errorf("failed to generate email body: %v", err)
 	}
 
-	// Prepare email request
-	emailReq := ResendEmailRequest{
+	// Prepare email request using Resend SDK
+	params := &resend.SendEmailRequest{
 		From:    e.getFromAddress(),
 		To:      recipients,
 		Subject: subject,
-		HTML:    htmlBody,
+		Html:    htmlBody,
 		Text:    textBody,
 		Headers: map[string]string{
 			"X-Alert-ID":       alert.ID,
 			"X-Alert-Severity": string(alert.Severity),
 			"X-Alert-Type":     string(alert.Type),
 		},
-		Tags: []map[string]string{
+		Tags: []resend.Tag{
 			{
-				"name":  "alert_type",
-				"value": string(alert.Type),
+				Name:  "alert_type",
+				Value: string(alert.Type),
 			},
 			{
-				"name":  "alert_severity",
-				"value": string(alert.Severity),
+				Name:  "alert_severity", 
+				Value: string(alert.Severity),
 			},
 		},
 	}
 
 	// Send email via Resend API
-	return e.sendViaResend(emailReq)
+	return e.sendViaResendSDK(params)
 }
 
 // getRecipients determines who should receive the alert email
@@ -294,44 +285,74 @@ func (e *EmailNotifier) executeTemplate(tmplStr string, alert *Alert) (string, e
 	return buf.String(), nil
 }
 
-// sendViaResend sends the email using Resend API
-func (e *EmailNotifier) sendViaResend(emailReq ResendEmailRequest) error {
-	// Prepare JSON payload
-	jsonData, err := json.Marshal(emailReq)
+// sendViaResendSDK sends the email using Resend Go SDK
+func (e *EmailNotifier) sendViaResendSDK(params *resend.SendEmailRequest) error {
+	// Log email attempt for debugging
+	fmt.Printf("DEBUG: ===== ATTEMPTING EMAIL SEND =====\n")
+	fmt.Printf("DEBUG: From: %s\n", params.From)
+	fmt.Printf("DEBUG: To: %v\n", params.To)
+	fmt.Printf("DEBUG: Subject: %s\n", params.Subject)
+	fmt.Printf("DEBUG: HTML length: %d chars\n", len(params.Html))
+	fmt.Printf("DEBUG: Text length: %d chars\n", len(params.Text))
+	fmt.Printf("DEBUG: Headers: %v\n", params.Headers)
+	fmt.Printf("DEBUG: Tags: %v\n", params.Tags)
+	fmt.Printf("DEBUG: Client initialized: %v\n", e.client != nil)
+	fmt.Printf("DEBUG: ==================================\n")
+	
+	if e.client == nil {
+		return fmt.Errorf("resend client not initialized")
+	}
+
+	// Validate email parameters
+	if params.From == "" {
+		return fmt.Errorf("from email is required")
+	}
+	if len(params.To) == 0 {
+		return fmt.Errorf("recipient email is required")
+	}
+	if params.Subject == "" {
+		return fmt.Errorf("email subject is required")
+	}
+
+	fmt.Printf("DEBUG: Validation passed, sending email...\n")
+
+	// Send email using Resend SDK
+	fmt.Printf("DEBUG: About to call client.Emails.Send()...\n")
+	sent, err := e.client.Emails.Send(params)
+	fmt.Printf("DEBUG: client.Emails.Send() returned, err = %v\n", err)
+	
 	if err != nil {
-		return fmt.Errorf("failed to marshal email request: %v", err)
+		fmt.Printf("DEBUG: ===== RESEND SDK ERROR DETAILS =====\n")
+		fmt.Printf("DEBUG: Error occurred: %v\n", err)
+		
+		// Handle potential nil error safely
+		if err != nil {
+			fmt.Printf("DEBUG: Error type: %T\n", err)
+			fmt.Printf("DEBUG: Error string: '%s'\n", err.Error())
+			
+			// Log additional context that might help debug
+			errorStr := err.Error()
+			fmt.Printf("DEBUG: Error message analysis:\n")
+			
+			if strings.Contains(errorStr, "domain") {
+				fmt.Printf("DEBUG: → Domain-related error detected\n")
+				if len(strings.Split(params.From, "@")) > 1 {
+					domain := strings.Split(params.From, "@")[1]
+					fmt.Printf("DEBUG: → Domain '%s' may not be verified in Resend\n", domain)
+				}
+			}
+			if strings.Contains(errorStr, "api_key") || strings.Contains(errorStr, "unauthorized") {
+				fmt.Printf("DEBUG: → API key issue detected\n")
+			}
+			if strings.Contains(errorStr, "validation") {
+				fmt.Printf("DEBUG: → Validation error detected\n")
+			}
+		}
+		fmt.Printf("DEBUG: =====================================\n")
+		
+		return fmt.Errorf("failed to send email via Resend SDK: %v", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+e.config.ResendAPIKey)
-
-	// Send request
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		// Success - optionally parse response for email ID
-		var resendResp ResendEmailResponse
-		json.NewDecoder(resp.Body).Decode(&resendResp)
-		return nil
-	}
-
-	// Handle error response
-	var errorResp ResendErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errorResp); err != nil {
-		return fmt.Errorf("email sending failed with status %d", resp.StatusCode)
-	}
-
-	return fmt.Errorf("email sending failed: %s - %s", errorResp.Name, errorResp.Message)
+	fmt.Printf("DEBUG: Email sent successfully! Resend ID: %s\n", sent.Id)
+	return nil
 }

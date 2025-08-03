@@ -47,11 +47,19 @@ collectors:
 # Storage configuration  
 storage:
   # Storage type: memory, sqlite
-  type: "memory"
+  type: "sqlite"
   
   # For SQLite storage
   sqlite:
     path: "/var/lib/crucible/monitor.db"
+    batch_size: 100
+    cleanup_interval: "1h"
+    backup_enabled: true
+    backup_interval: "24h"
+    retention:
+      events_days: 90
+      metrics_days: 30
+      aggregates_days: 365
   
   # Data aggregation settings
   aggregation:
@@ -80,7 +88,7 @@ alerts:
 # Notification channels (disabled by default)
 notifications:
   email:
-    enabled: false
+    enabled: true
     smtp_server: ""
     smtp_port: 587
     username: ""

@@ -1,0 +1,40 @@
+[Unit]
+Description=Crucible Server Monitoring Agent
+Documentation=https://github.com/yourusername/crucible
+After=network.target mysql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=crucible
+Group=crucible
+WorkingDirectory=/opt/crucible
+ExecStart=/opt/crucible/crucible-monitor
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Environment variables from file
+EnvironmentFile=/opt/crucible/.env
+
+# Alternatively, set environment variables directly:
+# Environment=RESEND_API_KEY=your_key_here
+# Environment=ALERT_FROM_EMAIL=monitor@yourdomain.com
+# Environment=ALERT_FROM_NAME=Crucible Monitor
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/crucible
+ReadOnlyPaths=/opt/crucible
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crucible-monitor
+
+[Install]
+WantedBy=multi-user.target

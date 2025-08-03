@@ -19,9 +19,38 @@ func (m Model) showMonitoringDashboard() (tea.Model, tea.Cmd) {
 	m.State = StateProcessing
 	m.Report = []string{}
 	m.ProcessingMsg = "Loading monitoring data..."
+	m.MonitoringScroll = 0 // Reset scroll position when refreshing
 
+	// Initialize monitoring view if not set
+	if m.MonitoringView == 0 && m.MonitoringTimeRange == 0 {
+		m.MonitoringView = MonitoringViewLive
+		m.MonitoringTimeRange = TimeRangeLast1Hour
+	}
+
+	// Build monitoring dashboard report based on current view
+	switch m.MonitoringView {
+	case MonitoringViewLive:
+		return m.showLiveMonitoringData()
+	case MonitoringViewHistorical:
+		return m.showHistoricalMonitoringData()
+	case MonitoringViewEvents:
+		return m.showEventsMonitoringData()
+	case MonitoringViewStorage:
+		return m.showStorageMonitoringData()
+	default:
+		return m.showLiveMonitoringData()
+	}
+}
+
+// showLiveMonitoringData displays live monitoring data (original functionality)
+func (m Model) showLiveMonitoringData() (tea.Model, tea.Cmd) {
 	// Build monitoring dashboard report
-	m.Report = append(m.Report, TitleStyle.Render("=== MONITORING DASHBOARD ==="))
+	m.Report = append(m.Report, TitleStyle.Render("=== LIVE MONITORING DASHBOARD ==="))
+	m.Report = append(m.Report, "")
+
+	// Add navigation help
+	m.Report = append(m.Report, ChoiceStyle.Render("Navigation: [h] Historical | [e] Events | [s] Storage | [r] Refresh | [q] Back"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Scroll: ↑↓ or k/j | Page: PgUp/PgDn | Home/End"))
 	m.Report = append(m.Report, "")
 
 	// Check if monitoring agent is running
@@ -54,6 +83,132 @@ func (m Model) showMonitoringDashboard() (tea.Model, tea.Cmd) {
 		alertMetrics := m.fetchActiveAlerts()
 		m.Report = append(m.Report, InfoStyle.Render("🚨 Active Alerts:"))
 		m.Report = append(m.Report, alertMetrics...)
+	} else {
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Start monitoring agent with: ./crucible-monitor"))
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Or use: make run-monitor"))
+	}
+
+	m.ProcessingMsg = ""
+	return m, tea.ClearScreen
+}
+
+// showHistoricalMonitoringData displays historical monitoring data
+func (m Model) showHistoricalMonitoringData() (tea.Model, tea.Cmd) {
+	// Build historical monitoring dashboard report
+	m.Report = append(m.Report, TitleStyle.Render("=== HISTORICAL MONITORING DATA ==="))
+	m.Report = append(m.Report, "")
+
+	// Add navigation help and time range selector
+	m.Report = append(m.Report, ChoiceStyle.Render("Navigation: [l] Live | [e] Events | [s] Storage | [r] Refresh | [q] Back"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Time Range: [1] 1h | [6] 6h | [d] 24h | [w] 7d | [m] 30d"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Scroll: ↑↓ or k/j | Page: PgUp/PgDn | Home/End"))
+	m.Report = append(m.Report, InfoStyle.Render(fmt.Sprintf("Current Range: %s", m.MonitoringTimeRange.String())))
+	m.Report = append(m.Report, "")
+
+	// Check if monitoring agent is running
+	agentStatus := m.checkMonitoringAgent()
+	m.Report = append(m.Report, InfoStyle.Render("🔧 Monitoring Agent:"))
+	m.Report = append(m.Report, agentStatus)
+	m.Report = append(m.Report, "")
+
+	// If agent is running, fetch historical data
+	if strings.Contains(agentStatus, "✅") {
+		// Fetch entities
+		entities := m.fetchEntities()
+		m.Report = append(m.Report, InfoStyle.Render("📊 Monitored Entities:"))
+		m.Report = append(m.Report, entities...)
+		m.Report = append(m.Report, "")
+
+		// Fetch recent historical metrics for key entities
+		historicalMetrics := m.fetchHistoricalMetrics()
+		m.Report = append(m.Report, InfoStyle.Render("📈 Historical Metrics Summary:"))
+		m.Report = append(m.Report, historicalMetrics...)
+		m.Report = append(m.Report, "")
+
+		// Storage statistics
+		storageStats := m.fetchStorageStats()
+		m.Report = append(m.Report, InfoStyle.Render("💾 Storage Statistics:"))
+		m.Report = append(m.Report, storageStats...)
+	} else {
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Start monitoring agent with: ./crucible-monitor"))
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Or use: make run-monitor"))
+	}
+
+	m.ProcessingMsg = ""
+	return m, tea.ClearScreen
+}
+
+// showEventsMonitoringData displays recent events
+func (m Model) showEventsMonitoringData() (tea.Model, tea.Cmd) {
+	// Build events monitoring dashboard report
+	m.Report = append(m.Report, TitleStyle.Render("=== MONITORING EVENTS ==="))
+	m.Report = append(m.Report, "")
+
+	// Add navigation help and time range selector
+	m.Report = append(m.Report, ChoiceStyle.Render("Navigation: [l] Live | [h] Historical | [s] Storage | [r] Refresh | [q] Back"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Time Range: [1] 1h | [6] 6h | [d] 24h | [w] 7d | [m] 30d"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Scroll: ↑↓ or k/j | Page: PgUp/PgDn | Home/End"))
+	m.Report = append(m.Report, InfoStyle.Render(fmt.Sprintf("Current Range: %s", m.MonitoringTimeRange.String())))
+	m.Report = append(m.Report, "")
+
+	// Check if monitoring agent is running
+	agentStatus := m.checkMonitoringAgent()
+	m.Report = append(m.Report, InfoStyle.Render("🔧 Monitoring Agent:"))
+	m.Report = append(m.Report, agentStatus)
+	m.Report = append(m.Report, "")
+
+	// If agent is running, fetch events
+	if strings.Contains(agentStatus, "✅") {
+		// Fetch recent events
+		events := m.fetchEvents()
+		m.Report = append(m.Report, InfoStyle.Render("📋 Recent Events:"))
+		m.Report = append(m.Report, events...)
+	} else {
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Start monitoring agent with: ./crucible-monitor"))
+		m.Report = append(m.Report, WarnStyle.Render("⚠️ Or use: make run-monitor"))
+	}
+
+	m.ProcessingMsg = ""
+	return m, tea.ClearScreen
+}
+
+// showStorageMonitoringData displays storage health and statistics
+func (m Model) showStorageMonitoringData() (tea.Model, tea.Cmd) {
+	// Build storage monitoring dashboard report
+	m.Report = append(m.Report, TitleStyle.Render("=== STORAGE MONITORING ==="))
+	m.Report = append(m.Report, "")
+
+	// Add navigation help
+	m.Report = append(m.Report, ChoiceStyle.Render("Navigation: [l] Live | [h] Historical | [e] Events | [r] Refresh | [q] Back"))
+	m.Report = append(m.Report, ChoiceStyle.Render("Scroll: ↑↓ or k/j | Page: PgUp/PgDn | Home/End"))
+	m.Report = append(m.Report, "")
+
+	// Check if monitoring agent is running
+	agentStatus := m.checkMonitoringAgent()
+	m.Report = append(m.Report, InfoStyle.Render("🔧 Monitoring Agent:"))
+	m.Report = append(m.Report, agentStatus)
+	m.Report = append(m.Report, "")
+
+	// If agent is running, fetch storage information
+	if strings.Contains(agentStatus, "✅") {
+		// Fetch storage health
+		storageHealth := m.fetchStorageHealth()
+		m.Report = append(m.Report, InfoStyle.Render("🏥 Storage Health:"))
+		m.Report = append(m.Report, storageHealth...)
+		m.Report = append(m.Report, "")
+
+		// Fetch detailed storage statistics
+		storageStats := m.fetchStorageStats()
+		m.Report = append(m.Report, InfoStyle.Render("📊 Database Statistics:"))
+		m.Report = append(m.Report, storageStats...)
+		m.Report = append(m.Report, "")
+
+		// Entity summary
+		entities := m.fetchEntities()
+		if len(entities) > 0 {
+			m.Report = append(m.Report, InfoStyle.Render("📦 Entity Summary:"))
+			m.Report = append(m.Report, entities...)
+		}
 	} else {
 		m.Report = append(m.Report, WarnStyle.Render("⚠️ Start monitoring agent with: ./crucible-monitor"))
 		m.Report = append(m.Report, WarnStyle.Render("⚠️ Or use: make run-monitor"))
@@ -345,4 +500,336 @@ func formatDuration(d time.Duration) string {
 	} else {
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// HISTORICAL DATA CLIENT FUNCTIONS
+
+// fetchEntities fetches entities from the monitoring agent
+func (m Model) fetchEntities() []string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:9090/api/v1/entities?limit=20")
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch entities")}
+	}
+	defer resp.Body.Close()
+
+	// Define response structure
+	type EntityResponse struct {
+		Entities []struct {
+			ID       int64  `json:"id"`
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+			Status   string `json:"status"`
+			LastSeen string `json:"last_seen"`
+		} `json:"entities"`
+		Count int `json:"count"`
+	}
+
+	var response EntityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse entities")}
+	}
+
+	if len(response.Entities) == 0 {
+		return []string{ChoiceStyle.Render("  No entities found in database")}
+	}
+
+	var result []string
+	entityTypes := map[string]int{}
+
+	for _, entity := range response.Entities {
+		status := "❌"
+		if entity.Status == "active" {
+			status = "✅"
+		} else if entity.Status == "inactive" {
+			status = "⚠️"
+		}
+
+		// Parse last seen time
+		lastSeen, err := time.Parse(time.RFC3339, entity.LastSeen)
+		if err != nil {
+			lastSeen = time.Now()
+		}
+		timeSince := time.Since(lastSeen)
+
+		result = append(result, fmt.Sprintf("  %s %s [%s] %s (Last seen: %s ago)",
+			status, entity.Type, entity.Name, entity.Status, formatDuration(timeSince)))
+
+		entityTypes[entity.Type]++
+	}
+
+	// Add summary
+	result = append(result, "")
+	result = append(result, ChoiceStyle.Render("Entity Summary:"))
+	for entityType, count := range entityTypes {
+		result = append(result, fmt.Sprintf("  %s: %d", entityType, count))
+	}
+
+	return result
+}
+
+// fetchEvents fetches recent events from the monitoring agent
+func (m Model) fetchEvents() []string {
+	since := time.Now().Add(-m.MonitoringTimeRange.Duration())
+	url := fmt.Sprintf("http://127.0.0.1:9090/api/v1/events?since=%s&limit=20", since.Format(time.RFC3339))
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch events")}
+	}
+	defer resp.Body.Close()
+
+	// Define response structure
+	type EventResponse struct {
+		Events []struct {
+			ID        int64     `json:"id"`
+			EntityID  int64     `json:"entity_id"`
+			Timestamp time.Time `json:"timestamp"`
+			Type      string    `json:"event_type"`
+			Severity  string    `json:"severity"`
+			Message   string    `json:"message"`
+		} `json:"events"`
+		Count int `json:"count"`
+	}
+
+	var response EventResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse events")}
+	}
+
+	if len(response.Events) == 0 {
+		return []string{ChoiceStyle.Render(fmt.Sprintf("  No events found in the last %s", m.MonitoringTimeRange.String()))}
+	}
+
+	var result []string
+	for i, event := range response.Events {
+		if i >= 15 { // Limit display to prevent overwhelming
+			break
+		}
+
+		// Get severity icon
+		var severityIcon string
+		switch event.Severity {
+		case "error":
+			severityIcon = "🚨"
+		case "warning":
+			severityIcon = "⚠️"
+		case "info":
+			severityIcon = "ℹ️"
+		default:
+			severityIcon = "📋"
+		}
+
+		// Format time
+		timeSince := time.Since(event.Timestamp)
+		timeStr := formatDuration(timeSince)
+
+		result = append(result, fmt.Sprintf("  %s [%s] %s (%s ago)",
+			severityIcon, strings.ToUpper(event.Severity), event.Message, timeStr))
+	}
+
+	// Add summary
+	if len(response.Events) > 15 {
+		result = append(result, "")
+		result = append(result, ChoiceStyle.Render(fmt.Sprintf("... and %d more events", len(response.Events)-15)))
+	}
+
+	return result
+}
+
+// fetchHistoricalMetrics fetches recent metrics for key entities
+func (m Model) fetchHistoricalMetrics() []string {
+	// Get entities first to find key ones
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:9090/api/v1/entities?type=server&limit=1")
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch server entity")}
+	}
+	defer resp.Body.Close()
+
+	type EntityResponse struct {
+		Entities []struct {
+			ID int64 `json:"id"`
+		} `json:"entities"`
+	}
+
+	var entities EntityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&entities); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse entities")}
+	}
+
+	if len(entities.Entities) == 0 {
+		return []string{ChoiceStyle.Render("  No server entity found")}
+	}
+
+	serverEntityID := entities.Entities[0].ID
+	since := time.Now().Add(-m.MonitoringTimeRange.Duration())
+	url := fmt.Sprintf("http://127.0.0.1:9090/api/v1/entities/%d/metrics?since=%s&limit=50",
+		serverEntityID, since.Format(time.RFC3339))
+
+	resp2, err := client.Get(url)
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch historical metrics")}
+	}
+	defer resp2.Body.Close()
+
+	type MetricResponse struct {
+		Metrics []struct {
+			MetricName string    `json:"metric_name"`
+			Value      float64   `json:"value"`
+			Timestamp  time.Time `json:"timestamp"`
+		} `json:"metrics"`
+		Count int `json:"count"`
+	}
+
+	var metrics MetricResponse
+	if err := json.NewDecoder(resp2.Body).Decode(&metrics); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse metrics")}
+	}
+
+	if len(metrics.Metrics) == 0 {
+		return []string{ChoiceStyle.Render(fmt.Sprintf("  No metrics found in the last %s", m.MonitoringTimeRange.String()))}
+	}
+
+	// Group metrics by name and calculate averages
+	metricGroups := make(map[string][]float64)
+	latestTimes := make(map[string]time.Time)
+
+	for _, metric := range metrics.Metrics {
+		metricGroups[metric.MetricName] = append(metricGroups[metric.MetricName], metric.Value)
+		if metric.Timestamp.After(latestTimes[metric.MetricName]) {
+			latestTimes[metric.MetricName] = metric.Timestamp
+		}
+	}
+
+	var result []string
+	for metricName, values := range metricGroups {
+		if len(values) == 0 {
+			continue
+		}
+
+		// Calculate average
+		sum := 0.0
+		for _, v := range values {
+			sum += v
+		}
+		avg := sum / float64(len(values))
+
+		// Get latest value
+		latest := values[len(values)-1]
+
+		// Format based on metric type
+		var display string
+		switch metricName {
+		case "cpu_usage", "memory_usage", "disk_usage", "disk_usage_root":
+			display = fmt.Sprintf("%.1f%% (avg: %.1f%%)", latest, avg)
+		case "load_1", "load_5", "load_15":
+			display = fmt.Sprintf("%.2f (avg: %.2f)", latest, avg)
+		default:
+			display = fmt.Sprintf("%.2f (avg: %.2f)", latest, avg)
+		}
+
+		timeSince := time.Since(latestTimes[metricName])
+		result = append(result, fmt.Sprintf("  📊 %s: %s (%d samples, %s ago)",
+			metricName, display, len(values), formatDuration(timeSince)))
+	}
+
+	if len(result) == 0 {
+		return []string{ChoiceStyle.Render("  No metrics data available")}
+	}
+
+	return result
+}
+
+// fetchStorageHealth fetches storage health information
+func (m Model) fetchStorageHealth() []string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:9090/api/v1/storage/health")
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch storage health")}
+	}
+	defer resp.Body.Close()
+
+	type HealthResponse struct {
+		Status  string `json:"status"`
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}
+
+	var health HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse storage health")}
+	}
+
+	var result []string
+	status := "❌"
+	if health.Status == "operational" {
+		status = "✅"
+	} else if health.Status == "degraded" {
+		status = "⚠️"
+	}
+
+	result = append(result, fmt.Sprintf("  %s Storage Type: %s", status, health.Type))
+	result = append(result, fmt.Sprintf("  %s Status: %s", status, health.Status))
+	if health.Message != "" {
+		result = append(result, fmt.Sprintf("  💬 %s", health.Message))
+	}
+
+	return result
+}
+
+// fetchStorageStats fetches detailed storage statistics
+func (m Model) fetchStorageStats() []string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:9090/api/v1/storage/stats")
+	if err != nil {
+		return []string{WarnStyle.Render("❌ Failed to fetch storage stats")}
+	}
+	defer resp.Body.Close()
+
+	type StatsResponse struct {
+		DBVersion         string     `json:"db_version"`
+		CrucibleVersion   string     `json:"crucible_version"`
+		DatabaseSizeBytes int64      `json:"database_size_bytes"`
+		EntitiesCount     int        `json:"entities_count"`
+		EventsCount       int        `json:"events_count"`
+		MetricsCount      int        `json:"metrics_count"`
+		CreatedAt         time.Time  `json:"created_at"`
+		UpdatedAt         time.Time  `json:"updated_at"`
+		LastCleanup       *time.Time `json:"last_cleanup_timestamp"`
+	}
+
+	var stats StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return []string{WarnStyle.Render("❌ Failed to parse storage stats")}
+	}
+
+	var result []string
+
+	// Database info
+	result = append(result, fmt.Sprintf("  📁 Database Version: %s", stats.DBVersion))
+	result = append(result, fmt.Sprintf("  🔧 Crucible Version: %s", stats.CrucibleVersion))
+
+	// Size info
+	sizeMB := float64(stats.DatabaseSizeBytes) / (1024 * 1024)
+	result = append(result, fmt.Sprintf("  💾 Database Size: %.2f MB", sizeMB))
+
+	// Record counts
+	result = append(result, fmt.Sprintf("  📦 Entities: %d", stats.EntitiesCount))
+	result = append(result, fmt.Sprintf("  📋 Events: %d", stats.EventsCount))
+	result = append(result, fmt.Sprintf("  📊 Metrics: %d", stats.MetricsCount))
+
+	// Timestamps
+	createdAgo := time.Since(stats.CreatedAt)
+	result = append(result, fmt.Sprintf("  🕐 Created: %s ago", formatDuration(createdAgo)))
+
+	if stats.LastCleanup != nil {
+		cleanupAgo := time.Since(*stats.LastCleanup)
+		result = append(result, fmt.Sprintf("  🧹 Last Cleanup: %s ago", formatDuration(cleanupAgo)))
+	} else {
+		result = append(result, "  🧹 Last Cleanup: Never")
+	}
+
+	return result
 }

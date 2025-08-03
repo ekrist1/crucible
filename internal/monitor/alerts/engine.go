@@ -3,6 +3,7 @@ package alerts
 import (
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -59,8 +60,22 @@ func NewAlertManager(config *Config) *AlertManager {
 
 // initializeNotifiers sets up notification channels based on configuration
 func (am *AlertManager) initializeNotifiers() {
+	log.Printf("DEBUG: Initializing notifiers...")
+	log.Printf("DEBUG: Email config - Enabled: %v", am.config.Email.Enabled)
+	log.Printf("DEBUG: Email config - ResendAPIKey present: %v", am.config.Email.ResendAPIKey != "")
+	log.Printf("DEBUG: Email config - ResendAPIKey length: %d", len(am.config.Email.ResendAPIKey))
+	log.Printf("DEBUG: Email config - FromEmail: %s", am.config.Email.FromEmail)
+	log.Printf("DEBUG: Email config - DefaultTo: %v", am.config.Email.DefaultTo)
+	
 	// Add email notifier if enabled
 	if am.config.Email.Enabled {
+		log.Printf("DEBUG: Email is enabled in config, creating email notifier...")
+		log.Printf("DEBUG: am.config.Email.ResendAPIKey: '%s' (length: %d)", am.config.Email.ResendAPIKey, len(am.config.Email.ResendAPIKey))
+		
+		// Check environment variable directly here too
+		envKey := os.Getenv("RESEND_API_KEY")
+		log.Printf("DEBUG: Direct os.Getenv(RESEND_API_KEY): '%s' (length: %d)", envKey, len(envKey))
+		
 		// Convert config to notifiers package format
 		notifierConfig := &notifiers.EmailConfig{
 			Enabled:         am.config.Email.Enabled,
@@ -71,9 +86,22 @@ func (am *AlertManager) initializeNotifiers() {
 			SubjectTemplate: am.config.Email.SubjectTemplate,
 			BodyTemplate:    am.config.Email.BodyTemplate,
 		}
+		log.Printf("DEBUG: notifierConfig.ResendAPIKey: '%s' (length: %d)", notifierConfig.ResendAPIKey, len(notifierConfig.ResendAPIKey))
+		
+		// If config is empty but env var has value, use env var directly
+		if notifierConfig.ResendAPIKey == "" && envKey != "" {
+			log.Printf("DEBUG: Config ResendAPIKey is empty but env var has value, using env var directly")
+			notifierConfig.ResendAPIKey = envKey
+			log.Printf("DEBUG: Updated notifierConfig.ResendAPIKey: '%s' (length: %d)", notifierConfig.ResendAPIKey, len(notifierConfig.ResendAPIKey))
+		}
 		emailNotifier := notifiers.NewEmailNotifier(notifierConfig)
 		am.notifiers = append(am.notifiers, &EmailNotifierWrapper{notifier: emailNotifier})
+		log.Printf("DEBUG: Email notifier added to notifiers list")
+	} else {
+		log.Printf("DEBUG: Email is disabled in config, skipping email notifier")
 	}
+
+	log.Printf("DEBUG: Total notifiers initialized: %d", len(am.notifiers))
 
 	// TODO: Add webhook notifiers when implemented
 	// for _, webhookConfig := range am.config.Webhooks {
@@ -389,22 +417,32 @@ func (am *AlertManager) shouldSendNotification(alert *Alert, rule *AlertRule) bo
 func (am *AlertManager) sendNotifications(alert *Alert, rule *AlertRule) {
 	now := time.Now()
 
-	for _, notifier := range am.notifiers {
+	log.Printf("DEBUG: Attempting to send notifications for alert: %s", alert.Name)
+	log.Printf("DEBUG: Number of configured notifiers: %d", len(am.notifiers))
+
+	for i, notifier := range am.notifiers {
+		log.Printf("DEBUG: Checking notifier %d: %s (enabled: %v)", i, notifier.Name(), notifier.IsEnabled())
+		
 		if !notifier.IsEnabled() {
+			log.Printf("DEBUG: Notifier %s is disabled, skipping", notifier.Name())
 			continue
 		}
 
+		log.Printf("DEBUG: Sending alert via %s...", notifier.Name())
 		err := notifier.Send(alert)
 		if err != nil {
 			log.Printf("Failed to send alert via %s: %v", notifier.Name(), err)
 			continue
 		}
 
+		log.Printf("DEBUG: Successfully sent alert via %s", notifier.Name())
 		alert.SentTo = append(alert.SentTo, notifier.Name())
 	}
 
 	alert.NotificationsSent++
 	alert.LastSent = &now
+	
+	log.Printf("DEBUG: Notification attempt completed. Sent to: %v", alert.SentTo)
 }
 
 // addToHistory adds an alert to the history buffer

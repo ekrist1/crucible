@@ -24,8 +24,35 @@ func (m Model) View() string {
 		return m.viewLogViewer()
 	case StateServiceList:
 		return m.viewServiceList()
+	case StateServiceActions:
+		return m.viewServiceActions()
 	}
 	return ""
+}
+
+// viewServiceActions renders the service actions view
+func (m Model) viewServiceActions() string {
+	s := TitleStyle.Render(fmt.Sprintf("🔧 Service: %s", m.CurrentService.Name)) + "\n\n"
+
+	// Service information
+	s += InfoStyle.Render("Current Status:") + "\n"
+	s += fmt.Sprintf("  Status: %s\n", m.CurrentService.Status)
+	s += fmt.Sprintf("  Active: %s\n", m.CurrentService.Active)
+	s += fmt.Sprintf("  Sub-state: %s\n", m.CurrentService.Sub)
+	s += "\n"
+
+	// Available actions
+	s += InfoStyle.Render("Available Actions:") + "\n"
+	s += ChoiceStyle.Render("  [s] Show detailed status") + "\n"
+	s += ChoiceStyle.Render("  [r] Restart service") + "\n"
+	s += ChoiceStyle.Render("  [t] Stop service") + "\n"
+	s += ChoiceStyle.Render("  [a] Start service") + "\n"
+	s += "\n"
+
+	// Instructions
+	s += "Press the corresponding key to perform an action, or Esc to go back.\n"
+
+	return s
 }
 
 // viewMenu renders the main menu
@@ -142,12 +169,66 @@ func (m Model) viewProcessing() string {
 		s += "Please wait...\n"
 	} else {
 		if len(m.Report) > 0 {
-			s += strings.Join(m.Report, "\n") + "\n\n"
+			// Check if this is a monitoring dashboard view (which needs scrolling)
+			if m.isInMonitoringDashboard() {
+				s += m.renderScrollableReport() + "\n\n"
+			} else {
+				s += strings.Join(m.Report, "\n") + "\n\n"
+			}
 		}
-		s += "Processing completed!\n"
-		s += "Press any key to return to main menu.\n"
+
+		// Different footer based on whether we're in monitoring dashboard
+		if m.isInMonitoringDashboard() {
+			s += InfoStyle.Render("📋 Scroll: ↑↓ or k/j | Page: PgUp/PgDn | Home/End | Navigation: h/l/e/s | [q] Back") + "\n"
+		} else {
+			s += "Processing completed!\n"
+			s += "Press any key to return to main menu.\n"
+		}
 	}
 	return s
+}
+
+// renderScrollableReport renders the report content with scrolling support
+func (m Model) renderScrollableReport() string {
+	if len(m.Report) == 0 {
+		return ""
+	}
+
+	// Calculate visible window parameters
+	viewHeight := 18 // Number of lines to display (adjust based on typical terminal height)
+	startLine := m.MonitoringScroll
+	endLine := startLine + viewHeight
+
+	// Ensure we don't exceed report bounds
+	if endLine > len(m.Report) {
+		endLine = len(m.Report)
+	}
+	if startLine >= len(m.Report) {
+		startLine = len(m.Report) - 1
+		if startLine < 0 {
+			startLine = 0
+		}
+	}
+
+	// Get the visible slice of report lines
+	visibleLines := make([]string, 0, endLine-startLine)
+	for i := startLine; i < endLine; i++ {
+		visibleLines = append(visibleLines, m.Report[i])
+	}
+
+	// Add scroll indicators if there's more content
+	result := strings.Join(visibleLines, "\n")
+
+	// Add scroll position indicator
+	if len(m.Report) > viewHeight {
+		totalPages := (len(m.Report) + viewHeight - 1) / viewHeight
+		currentPage := (m.MonitoringScroll / viewHeight) + 1
+		scrollInfo := fmt.Sprintf("\n\n%s Page %d/%d | Lines %d-%d of %d",
+			InfoStyle.Render("📖"), currentPage, totalPages, startLine+1, endLine, len(m.Report))
+		result += scrollInfo
+	}
+
+	return result
 }
 
 // updateLogViewer handles log viewer navigation input

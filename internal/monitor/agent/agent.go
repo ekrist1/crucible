@@ -10,6 +10,7 @@ import (
 	"crucible/internal/monitor"
 	"crucible/internal/monitor/alerts"
 	"crucible/internal/monitor/collectors"
+	"crucible/internal/monitor/storage"
 )
 
 // Agent represents the monitoring agent
@@ -26,6 +27,9 @@ type Agent struct {
 	httpCheckResults  []monitor.HTTPCheckResult
 	metricsCount      int64
 	activeAlertsCount int
+
+	// Storage adapter
+	storageAdapter *storage.StorageAdapter
 
 	// Collectors
 	systemCollector   *collectors.SystemCollector
@@ -46,7 +50,7 @@ type Agent struct {
 }
 
 // NewAgent creates a new monitoring agent
-func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
+func NewAgent(config *monitor.Config, logger *logging.Logger) (*Agent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	agent := &Agent{
@@ -55,6 +59,16 @@ func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
 		startTime: time.Now(),
 		ctx:       ctx,
 		cancel:    cancel,
+	}
+
+	// Initialize storage adapter if configured
+	if config.Storage.Type == "sqlite" {
+		storageAdapter, err := storage.NewStorageAdapter(config, logger)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create storage adapter: %w", err)
+		}
+		agent.storageAdapter = storageAdapter
 	}
 
 	// Initialize collectors
@@ -85,7 +99,7 @@ func NewAgent(config *monitor.Config, logger *logging.Logger) *Agent {
 	// Create HTTP server
 	agent.server = NewServer(config, logger, agent)
 
-	return agent
+	return agent, nil
 }
 
 // Start starts the monitoring agent
@@ -109,6 +123,13 @@ func (a *Agent) Stop() error {
 
 	// Cancel context to stop collectors
 	a.cancel()
+
+	// Close storage adapter
+	if a.storageAdapter != nil {
+		if err := a.storageAdapter.Close(); err != nil {
+			a.logger.Error("Failed to close storage adapter", "error", err)
+		}
+	}
 
 	// Stop HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -222,6 +243,13 @@ func (a *Agent) collectSystemMetrics() {
 	a.lastSystemCollect = &now
 	a.metricsCount++
 	a.mu.Unlock()
+
+	// Store in persistent storage if available
+	if a.storageAdapter != nil {
+		if err := a.storageAdapter.StoreSystemMetrics(metrics); err != nil {
+			a.logger.Error("Failed to store system metrics", "error", err)
+		}
+	}
 }
 
 // collectServiceMetrics collects current service metrics
@@ -239,6 +267,13 @@ func (a *Agent) collectServiceMetrics() {
 	now := time.Now()
 	a.lastServicesCollect = &now
 	a.mu.Unlock()
+
+	// Store in persistent storage if available
+	if a.storageAdapter != nil {
+		if err := a.storageAdapter.StoreServiceMetrics(services); err != nil {
+			a.logger.Error("Failed to store service metrics", "error", err)
+		}
+	}
 }
 
 // performHTTPCheck performs a single HTTP health check
@@ -263,6 +298,13 @@ func (a *Agent) performHTTPCheck(check monitor.HTTPCheck) {
 	now := time.Now()
 	a.lastHTTPChecksCollect = &now
 	a.mu.Unlock()
+
+	// Store in persistent storage if available
+	if a.storageAdapter != nil {
+		if err := a.storageAdapter.StoreHTTPCheckResults([]monitor.HTTPCheckResult{result}); err != nil {
+			a.logger.Error("Failed to store HTTP check results", "error", err)
+		}
+	}
 }
 
 // Getter methods for server endpoints
@@ -484,4 +526,9 @@ func (a *Agent) ResolveAlert(alertID string) error {
 		return fmt.Errorf("alert manager not initialized")
 	}
 	return a.alertManager.ResolveAlert(alertID)
+}
+
+// GetStorageAdapter returns the storage adapter for accessing historical data
+func (a *Agent) GetStorageAdapter() *storage.StorageAdapter {
+	return a.storageAdapter
 }

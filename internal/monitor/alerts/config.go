@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -250,8 +251,13 @@ func convertConditions(condConfig *AlertConditionsConfig) (*AlertConditions, err
 // loadEnvironmentOverrides loads sensitive configuration from environment variables
 func loadEnvironmentOverrides(config *Config) error {
 	// Load Resend API key from environment
-	if resendKey := os.Getenv("RESEND_API_KEY"); resendKey != "" {
+	resendKey := os.Getenv("RESEND_API_KEY")
+	log.Printf("DEBUG: loadEnvironmentOverrides - RESEND_API_KEY from env: '%s' (length: %d)", resendKey, len(resendKey))
+	if resendKey != "" {
 		config.Email.ResendAPIKey = resendKey
+		log.Printf("DEBUG: loadEnvironmentOverrides - Set config.Email.ResendAPIKey to: '%s'", resendKey)
+	} else {
+		log.Printf("DEBUG: loadEnvironmentOverrides - RESEND_API_KEY is empty, not setting")
 	}
 
 	// Load email settings from environment if not set in config

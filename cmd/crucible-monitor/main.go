@@ -60,7 +60,11 @@ func main() {
 	)
 
 	// Create monitoring agent
-	monitorAgent := agent.NewAgent(config, logger)
+	monitorAgent, err := agent.NewAgent(config, logger)
+	if err != nil {
+		logger.Error("Failed to create monitoring agent", "error", err)
+		os.Exit(1)
+	}
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

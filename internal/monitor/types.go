@@ -215,7 +215,19 @@ type StorageConfig struct {
 
 // SQLiteConfig represents SQLite storage configuration
 type SQLiteConfig struct {
-	Path string `yaml:"path"`
+	Path            string          `yaml:"path"`
+	BatchSize       int             `yaml:"batch_size"`
+	CleanupInterval time.Duration   `yaml:"cleanup_interval"`
+	BackupEnabled   bool            `yaml:"backup_enabled"`
+	BackupInterval  time.Duration   `yaml:"backup_interval"`
+	Retention       RetentionConfig `yaml:"retention"`
+}
+
+// RetentionConfig represents data retention configuration
+type RetentionConfig struct {
+	EventsDays     int `yaml:"events_days"`
+	MetricsDays    int `yaml:"metrics_days"`
+	AggregatesDays int `yaml:"aggregates_days"`
 }
 
 // AggregationConfig represents data aggregation configuration

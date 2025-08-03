@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"crucible/internal/logging"
 	"crucible/internal/monitor"
+	"crucible/internal/monitor/storage"
 )
 
 // Server represents the monitoring agent HTTP API server
@@ -45,6 +47,15 @@ func (s *Server) Start() error {
 	// Alert endpoints
 	mux.HandleFunc("/api/v1/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/v1/alerts/", s.handleAlertActions)
+
+	// Storage endpoints (for historical data)
+	mux.HandleFunc("/api/v1/entities", s.handleEntities)
+	mux.HandleFunc("/api/v1/entities/", s.handleEntityDetails)
+	mux.HandleFunc("/api/v1/events", s.handleEvents)
+	mux.HandleFunc("/api/v1/metrics", s.handleMetrics)
+	mux.HandleFunc("/api/v1/metrics/summary", s.handleMetricSummary)
+	mux.HandleFunc("/api/v1/storage/health", s.handleStorageHealth)
+	mux.HandleFunc("/api/v1/storage/stats", s.handleStorageStats)
 
 	// Configuration endpoints
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
@@ -297,6 +308,469 @@ func (s *Server) getCollectorStatus() map[string]interface{} {
 			"last_collect": s.agent.GetLastHTTPChecksCollect(),
 		},
 	}
+}
+
+// handleEntities returns a list of entities from storage
+func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if storage adapter is available
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for filtering
+	filter := &storage.EntityFilter{}
+	query := r.URL.Query()
+
+	if entityType := query.Get("type"); entityType != "" {
+		filter.Type = &entityType
+	}
+	if status := query.Get("status"); status != "" {
+		filter.Status = &status
+	}
+	if name := query.Get("name"); name != "" {
+		filter.Name = &name
+	}
+	if limit := query.Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			filter.Limit = &l
+		}
+	}
+	if offset := query.Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filter.Offset = &o
+		}
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+
+	// Get entities from storage
+	entities, err := storageAdapter.ListEntities(filter)
+	if err != nil {
+		s.logger.Error("Failed to list entities", "error", err)
+		http.Error(w, "Failed to retrieve entities", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"entities": entities,
+		"count":    len(entities),
+		"filter":   filter,
+	}
+
+	s.writeJSONResponse(w, response)
+}
+
+// handleEntityDetails returns details for a specific entity
+func (s *Server) handleEntityDetails(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract entity ID from URL path
+	path := r.URL.Path
+	if len(path) <= len("/api/v1/entities/") {
+		http.Error(w, "Entity ID required", http.StatusBadRequest)
+		return
+	}
+
+	entityIDStr := path[len("/api/v1/entities/"):]
+	// Remove any sub-paths (e.g., /metrics, /events)
+	if idx := strings.Index(entityIDStr, "/"); idx > 0 {
+		subPath := entityIDStr[idx+1:]
+		entityIDStr = entityIDStr[:idx]
+
+		// Handle sub-paths like /api/v1/entities/{id}/metrics
+		entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid entity ID", http.StatusBadRequest)
+			return
+		}
+
+		switch subPath {
+		case "metrics":
+			s.handleEntityMetrics(w, r, entityID)
+		case "events":
+			s.handleEntityEvents(w, r, entityID)
+		default:
+			http.Error(w, "Unknown entity sub-path", http.StatusNotFound)
+		}
+		return
+	}
+
+	// Get entity details
+	entityID, err := strconv.ParseInt(entityIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid entity ID", http.StatusBadRequest)
+		return
+	}
+
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	entity, err := storageAdapter.GetEntity(entityID)
+	if err != nil {
+		s.logger.Error("Failed to get entity", "entity_id", entityID, "error", err)
+		http.Error(w, "Entity not found", http.StatusNotFound)
+		return
+	}
+
+	s.writeJSONResponse(w, entity)
+}
+
+// handleStorageHealth returns storage system health
+func (s *Server) handleStorageHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.agent.storageAdapter == nil {
+		response := map[string]interface{}{
+			"status":  "not_configured",
+			"type":    s.config.Storage.Type,
+			"message": "Storage adapter not initialized",
+		}
+		s.writeJSONResponse(w, response)
+		return
+	}
+
+	// Try to get storage health (we need to add this method)
+	response := map[string]interface{}{
+		"status":  "operational",
+		"type":    s.config.Storage.Type,
+		"message": "SQLite storage is configured and operational",
+		"note":    "Detailed health metrics not yet implemented",
+	}
+
+	s.writeJSONResponse(w, response)
+}
+
+// handleStorageStats returns storage statistics
+func (s *Server) handleStorageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.agent.storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get storage stats using the adapter
+	stats, err := s.agent.storageAdapter.GetStorageStats()
+	if err != nil {
+		s.logger.Error("Failed to get storage stats", "error", err)
+		http.Error(w, "Failed to get storage statistics", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSONResponse(w, stats)
+}
+
+// handleEvents returns events from storage
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for filtering
+	filter := &storage.EventFilter{}
+	query := r.URL.Query()
+
+	if entityID := query.Get("entity_id"); entityID != "" {
+		if id, err := strconv.ParseInt(entityID, 10, 64); err == nil {
+			filter.EntityID = &id
+		}
+	}
+	if eventType := query.Get("type"); eventType != "" {
+		filter.Type = &eventType
+	}
+	if severity := query.Get("severity"); severity != "" {
+		filter.Severity = &severity
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = &t
+		}
+	}
+	if limit := query.Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			filter.Limit = &l
+		}
+	}
+	if offset := query.Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filter.Offset = &o
+		}
+	}
+
+	events, err := storageAdapter.ListEvents(filter)
+	if err != nil {
+		s.logger.Error("Failed to list events", "error", err)
+		http.Error(w, "Failed to retrieve events", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"events": events,
+		"count":  len(events),
+		"filter": filter,
+	}
+
+	s.writeJSONResponse(w, response)
+}
+
+// handleMetrics returns metrics from storage
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for filtering
+	filter := &storage.MetricFilter{}
+	query := r.URL.Query()
+
+	if entityID := query.Get("entity_id"); entityID != "" {
+		if id, err := strconv.ParseInt(entityID, 10, 64); err == nil {
+			filter.EntityID = &id
+		}
+	}
+	if metricName := query.Get("metric_name"); metricName != "" {
+		filter.MetricName = &metricName
+	}
+	if aggregationLevel := query.Get("aggregation_level"); aggregationLevel != "" {
+		filter.AggregationLevel = &aggregationLevel
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = &t
+		}
+	}
+	if limit := query.Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			filter.Limit = &l
+		}
+	}
+	if offset := query.Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filter.Offset = &o
+		}
+	}
+
+	metrics, err := storageAdapter.ListMetrics(filter)
+	if err != nil {
+		s.logger.Error("Failed to list metrics", "error", err)
+		http.Error(w, "Failed to retrieve metrics", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"metrics": metrics,
+		"count":   len(metrics),
+		"filter":  filter,
+	}
+
+	s.writeJSONResponse(w, response)
+}
+
+// handleMetricSummary returns aggregated metric summaries
+func (s *Server) handleMetricSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for filtering
+	filter := &storage.MetricFilter{}
+	query := r.URL.Query()
+
+	if entityID := query.Get("entity_id"); entityID != "" {
+		if id, err := strconv.ParseInt(entityID, 10, 64); err == nil {
+			filter.EntityID = &id
+		}
+	}
+	if metricName := query.Get("metric_name"); metricName != "" {
+		filter.MetricName = &metricName
+	}
+	if aggregationLevel := query.Get("aggregation_level"); aggregationLevel != "" {
+		filter.AggregationLevel = &aggregationLevel
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = &t
+		}
+	}
+
+	summary, err := storageAdapter.GetMetricSummary(filter)
+	if err != nil {
+		s.logger.Error("Failed to get metric summary", "error", err)
+		http.Error(w, "Failed to retrieve metric summary", http.StatusInternalServerError)
+		return
+	}
+
+	s.writeJSONResponse(w, summary)
+}
+
+// handleEntityMetrics returns metrics for a specific entity
+func (s *Server) handleEntityMetrics(w http.ResponseWriter, r *http.Request, entityID int64) {
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for additional filtering
+	filter := &storage.MetricFilter{EntityID: &entityID}
+	query := r.URL.Query()
+
+	if metricName := query.Get("metric_name"); metricName != "" {
+		filter.MetricName = &metricName
+	}
+	if aggregationLevel := query.Get("aggregation_level"); aggregationLevel != "" {
+		filter.AggregationLevel = &aggregationLevel
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = &t
+		}
+	}
+	if limit := query.Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			filter.Limit = &l
+		}
+	}
+	if offset := query.Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filter.Offset = &o
+		}
+	}
+
+	metrics, err := storageAdapter.ListMetrics(filter)
+	if err != nil {
+		s.logger.Error("Failed to list entity metrics", "entity_id", entityID, "error", err)
+		http.Error(w, "Failed to retrieve entity metrics", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"entity_id": entityID,
+		"metrics":   metrics,
+		"count":     len(metrics),
+		"filter":    filter,
+	}
+
+	s.writeJSONResponse(w, response)
+}
+
+// handleEntityEvents returns events for a specific entity
+func (s *Server) handleEntityEvents(w http.ResponseWriter, r *http.Request, entityID int64) {
+	storageAdapter := s.agent.GetStorageAdapter()
+	if storageAdapter == nil {
+		http.Error(w, "Storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse query parameters for additional filtering
+	filter := &storage.EventFilter{EntityID: &entityID}
+	query := r.URL.Query()
+
+	if eventType := query.Get("type"); eventType != "" {
+		filter.Type = &eventType
+	}
+	if severity := query.Get("severity"); severity != "" {
+		filter.Severity = &severity
+	}
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = &t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = &t
+		}
+	}
+	if limit := query.Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			filter.Limit = &l
+		}
+	}
+	if offset := query.Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filter.Offset = &o
+		}
+	}
+
+	events, err := storageAdapter.ListEvents(filter)
+	if err != nil {
+		s.logger.Error("Failed to list entity events", "entity_id", entityID, "error", err)
+		http.Error(w, "Failed to retrieve entity events", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"entity_id": entityID,
+		"events":    events,
+		"count":     len(events),
+		"filter":    filter,
+	}
+
+	s.writeJSONResponse(w, response)
 }
 
 // writeJSONResponse writes a JSON response

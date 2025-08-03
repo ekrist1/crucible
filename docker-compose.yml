@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  crucible-monitor:
+    build: .
+    container_name: crucible-monitor
+    restart: unless-stopped
+    
+    ports:
+      - "9090:9090"
+    
+    environment:
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - ALERT_FROM_EMAIL=${ALERT_FROM_EMAIL}
+      - ALERT_FROM_NAME=${ALERT_FROM_NAME}
+    
+    volumes:
+      - crucible_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # For monitoring Docker containers
+    
+    # Network mode for system monitoring
+    network_mode: host
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  crucible_data:

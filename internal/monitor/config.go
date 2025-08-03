@@ -88,6 +88,24 @@ func validateAndSetDefaults(config *Config) error {
 	if config.Storage.SQLite.Path == "" {
 		config.Storage.SQLite.Path = "/var/lib/crucible/monitor.db"
 	}
+	if config.Storage.SQLite.BatchSize == 0 {
+		config.Storage.SQLite.BatchSize = 100
+	}
+	if config.Storage.SQLite.CleanupInterval == 0 {
+		config.Storage.SQLite.CleanupInterval = time.Hour
+	}
+	if config.Storage.SQLite.BackupInterval == 0 {
+		config.Storage.SQLite.BackupInterval = 24 * time.Hour
+	}
+	if config.Storage.SQLite.Retention.EventsDays == 0 {
+		config.Storage.SQLite.Retention.EventsDays = 90
+	}
+	if config.Storage.SQLite.Retention.MetricsDays == 0 {
+		config.Storage.SQLite.Retention.MetricsDays = 30
+	}
+	if config.Storage.SQLite.Retention.AggregatesDays == 0 {
+		config.Storage.SQLite.Retention.AggregatesDays = 365
+	}
 	if config.Storage.Aggregation.RawRetention == "" {
 		config.Storage.Aggregation.RawRetention = "24h"
 	}

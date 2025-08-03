@@ -9,10 +9,10 @@ max_alert_history: 1000 # Maximum number of alerts to keep in history
 # Email notification configuration
 email:
   enabled: true
-  from_email: "admin@altonline.no"
+  from_email: "delivered@resend.dev"
   from_name: "Crucible Server Monitor"
   default_to:
-    - "ekrist1@gmail.com"
+    - "admin@altonline.no"
 
   # Custom email templates (optional)
   subject_template: "🚨 [{{.Severity}}] {{.Name}}"

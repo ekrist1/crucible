@@ -26,6 +26,7 @@ const (
 	StateProcessing
 	StateLogViewer
 	StateServiceList
+	StateServiceActions
 )
 
 type MenuLevel int
@@ -37,6 +38,70 @@ const (
 	MenuServerManagement
 	MenuSettings
 )
+
+// MonitoringView represents different views in the monitoring dashboard
+type MonitoringView int
+
+const (
+	MonitoringViewLive MonitoringView = iota
+	MonitoringViewHistorical
+	MonitoringViewEvents
+	MonitoringViewStorage
+)
+
+// HistoricalTimeRange represents time range options for historical data
+type HistoricalTimeRange int
+
+const (
+	TimeRangeLast1Hour HistoricalTimeRange = iota
+	TimeRangeLast6Hours
+	TimeRangeLast24Hours
+	TimeRangeLast7Days
+	TimeRangeLast30Days
+)
+
+// getTimeRangeString returns the display string for a time range
+func (h HistoricalTimeRange) String() string {
+	switch h {
+	case TimeRangeLast1Hour:
+		return "Last 1 Hour"
+	case TimeRangeLast6Hours:
+		return "Last 6 Hours"
+	case TimeRangeLast24Hours:
+		return "Last 24 Hours"
+	case TimeRangeLast7Days:
+		return "Last 7 Days"
+	case TimeRangeLast30Days:
+		return "Last 30 Days"
+	default:
+		return "Last 1 Hour"
+	}
+}
+
+// getTimeRangeDuration returns the duration for a time range
+func (h HistoricalTimeRange) Duration() time.Duration {
+	switch h {
+	case TimeRangeLast1Hour:
+		return time.Hour
+	case TimeRangeLast6Hours:
+		return 6 * time.Hour
+	case TimeRangeLast24Hours:
+		return 24 * time.Hour
+	case TimeRangeLast7Days:
+		return 7 * 24 * time.Hour
+	case TimeRangeLast30Days:
+		return 30 * 24 * time.Hour
+	default:
+		return time.Hour
+	}
+}
+
+// isInMonitoringDashboard checks if we're currently viewing the monitoring dashboard
+func (m Model) isInMonitoringDashboard() bool {
+	return m.State == StateProcessing &&
+		len(m.Report) > 0 &&
+		strings.Contains(m.Report[0], "MONITORING")
+}
 
 // Message types for async command execution
 type CmdExecutionMsg struct {
@@ -104,6 +169,12 @@ type Model struct {
 	ServiceList         list.Model            // Service management list
 	Services            []actions.ServiceInfo // Parsed services
 	ReturnToServiceList bool                  // Flag to return to service list instead of main menu
+	// Monitoring dashboard state
+	MonitoringView      MonitoringView      // Current monitoring view
+	MonitoringTimeRange HistoricalTimeRange // Selected time range for historical data
+	MonitoringScroll    int                 // Current scroll position for monitoring dashboard
+	// Service management state
+	CurrentService actions.ServiceInfo // Currently selected service for actions
 }
 
 var (
@@ -155,6 +226,7 @@ func NewModel() Model {
 			"Core Services",
 			"Laravel Management",
 			"Server Management",
+			"Monitoring Dashboard",
 			"Settings",
 			"Exit",
 		},
@@ -196,6 +268,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateLogViewer(msg)
 	case StateServiceList:
 		return m.updateServiceList(msg)
+	case StateServiceActions:
+		return m.updateServiceActions(msg)
+	}
+	return m, nil
+}
+
+// updateServiceActions handles input in service actions state
+func (m Model) updateServiceActions(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
+			// Return to service list
+			m.State = StateServiceList
+			m.Report = []string{} // Clear report
+			return m, tea.ClearScreen
+		case "s":
+			// Show service status
+			commands, descriptions := actions.GetServiceStatus(m.CurrentService.Name)
+			return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-status-%s", m.CurrentService.Name))
+		case "r":
+			// Restart service
+			config := actions.ServiceActionConfig{
+				ServiceName: m.CurrentService.Name,
+				Action:      "restart",
+			}
+			commands, descriptions, err := actions.ControlService(config)
+			if err != nil {
+				m.State = StateProcessing
+				m.ProcessingMsg = ""
+				m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+				return m, tea.ClearScreen
+			}
+			return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-restart", m.CurrentService.Name))
+		case "t":
+			// Stop service
+			config := actions.ServiceActionConfig{
+				ServiceName: m.CurrentService.Name,
+				Action:      "stop",
+			}
+			commands, descriptions, err := actions.ControlService(config)
+			if err != nil {
+				m.State = StateProcessing
+				m.ProcessingMsg = ""
+				m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+				return m, tea.ClearScreen
+			}
+			return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-stop", m.CurrentService.Name))
+		case "a":
+			// Start service
+			config := actions.ServiceActionConfig{
+				ServiceName: m.CurrentService.Name,
+				Action:      "start",
+			}
+			commands, descriptions, err := actions.ControlService(config)
+			if err != nil {
+				m.State = StateProcessing
+				m.ProcessingMsg = ""
+				m.Report = []string{WarnStyle.Render(fmt.Sprintf("❌ Error: %v", err))}
+				return m, tea.ClearScreen
+			}
+			return m.startCommandQueue(commands, descriptions, fmt.Sprintf("service-%s-start", m.CurrentService.Name))
+		}
 	}
 	return m, nil
 }
@@ -228,6 +365,7 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"Core Services",
 					"Laravel Management",
 					"Server Management",
+					"Monitoring Dashboard",
 					"Exit",
 				}
 				m.FormData = make(map[string]string)
@@ -236,6 +374,117 @@ func (m Model) updateProcessing(msg tea.Msg) (tea.Model, tea.Cmd) {
 				modelPtr := &m
 				modelPtr.checkServiceInstallations() // Refresh all service statuses
 				return *modelPtr, tea.ClearScreen
+			}
+		// Monitoring dashboard navigation (only when processing is complete)
+		case "l":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringView = MonitoringViewLive
+				return m.showMonitoringDashboard()
+			}
+		case "h":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringView = MonitoringViewHistorical
+				return m.showMonitoringDashboard()
+			}
+		case "e":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringView = MonitoringViewEvents
+				return m.showMonitoringDashboard()
+			}
+		case "s":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringView = MonitoringViewStorage
+				return m.showMonitoringDashboard()
+			}
+		// Time range selection (only for historical and events views)
+		case "1":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() &&
+				(m.MonitoringView == MonitoringViewHistorical || m.MonitoringView == MonitoringViewEvents) {
+				m.MonitoringTimeRange = TimeRangeLast1Hour
+				return m.showMonitoringDashboard()
+			}
+		case "6":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() &&
+				(m.MonitoringView == MonitoringViewHistorical || m.MonitoringView == MonitoringViewEvents) {
+				m.MonitoringTimeRange = TimeRangeLast6Hours
+				return m.showMonitoringDashboard()
+			}
+		case "d":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() &&
+				(m.MonitoringView == MonitoringViewHistorical || m.MonitoringView == MonitoringViewEvents) {
+				m.MonitoringTimeRange = TimeRangeLast24Hours
+				return m.showMonitoringDashboard()
+			}
+		case "w":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() &&
+				(m.MonitoringView == MonitoringViewHistorical || m.MonitoringView == MonitoringViewEvents) {
+				m.MonitoringTimeRange = TimeRangeLast7Days
+				return m.showMonitoringDashboard()
+			}
+		case "m":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() &&
+				(m.MonitoringView == MonitoringViewHistorical || m.MonitoringView == MonitoringViewEvents) {
+				m.MonitoringTimeRange = TimeRangeLast30Days
+				return m.showMonitoringDashboard()
+			}
+		case "r":
+			// Refresh current monitoring view
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				return m.showMonitoringDashboard()
+			}
+		// Scrolling controls for monitoring dashboard
+		case "up", "k":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				if m.MonitoringScroll > 0 {
+					m.MonitoringScroll--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				// Calculate maximum scroll based on content length and screen height
+				maxScroll := len(m.Report) - 20 // Assume ~20 lines visible on screen
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if m.MonitoringScroll < maxScroll {
+					m.MonitoringScroll++
+				}
+				return m, nil
+			}
+		case "pageup":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringScroll -= 10
+				if m.MonitoringScroll < 0 {
+					m.MonitoringScroll = 0
+				}
+				return m, nil
+			}
+		case "pagedown":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				maxScroll := len(m.Report) - 20
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.MonitoringScroll += 10
+				if m.MonitoringScroll > maxScroll {
+					m.MonitoringScroll = maxScroll
+				}
+				return m, nil
+			}
+		case "home":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				m.MonitoringScroll = 0
+				return m, nil
+			}
+		case "end":
+			if m.ProcessingMsg == "" && m.isInMonitoringDashboard() {
+				maxScroll := len(m.Report) - 20
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.MonitoringScroll = maxScroll
+				return m, nil
 			}
 		}
 	case CmdCompletedMsg:

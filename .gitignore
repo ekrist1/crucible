@@ -1,0 +1,15 @@
+.env
+restart-monitor-with-env.sh
+setup-email-alerts.sh
+test-email-init.sh
+test-fixed-email.sh
+test-resend-sdk.sh
+test-with-sandbox.sh
+verify-email-config.sh
+debug-email-test.sh
+debug-your-environment.sh
+fix-resend-domain.sh
+test-email-final.sh
+test-env-loading.sh
+test-env-vars.sh
+test-monitor-memory.yaml

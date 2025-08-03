@@ -279,7 +279,8 @@ func (m Model) returnToServerManagement() (tea.Model, tea.Cmd) {
 
 // showServiceActions shows available actions for a service
 func (m Model) showServiceActions(service actions.ServiceInfo) (tea.Model, tea.Cmd) {
-	m.State = StateProcessing
+	m.State = StateServiceActions
+	m.CurrentService = service
 	m.ProcessingMsg = ""
 	m.Report = []string{
 		TitleStyle.Render(fmt.Sprintf("🔧 Service: %s", service.Name)),
