@@ -2,6 +2,7 @@ package actions
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 )
 
@@ -84,20 +85,19 @@ func ControlService(config ServiceActionConfig) ([]string, []string, error) {
 // GetCommonServices returns a list of commonly managed services
 func GetCommonServices() []string {
 	return []string{
-		"apache2",
-		"nginx",
-		"caddy",
-		"mysql",
-		"mariadb",
-		"postgresql",
-		"php8.4-fpm",
-		"php8.3-fpm",
-		"php-fpm",
-		"redis",
-		"supervisor",
-		"ssh",
-		"ufw",
-		"fail2ban",
+		// Web servers
+		"apache2", "httpd", "nginx", "caddy",
+		// Databases  
+		"mysql", "mysqld", "mariadb", "postgresql", "redis", "redis-server",
+		// PHP
+		"php8.4-fpm", "php8.3-fpm", "php-fpm", "php7.4-fpm",
+		// System services
+		"sshd", "ssh", "firewalld", "ufw", "fail2ban",
+		// Process management
+		"supervisor", "supervisord",
+		// Other common services
+		"NetworkManager", "systemd-resolved", "chronyd", "ntpd",
+		"docker", "containerd", "podman",
 	}
 }
 
@@ -124,4 +124,50 @@ func ParseServiceList(output string) []ServiceInfo {
 	}
 
 	return services
+}
+
+// GetSystemServices gets the current list of system services with their status
+func GetSystemServices() ([]ServiceInfo, error) {
+	commonServices := GetCommonServices()
+	var services []ServiceInfo
+	
+	for _, name := range commonServices {
+		// Check if service exists and get its status
+		service, err := getServiceInfo(name)
+		if err == nil {
+			services = append(services, service)
+		}
+	}
+	
+	return services, nil
+}
+
+// getServiceInfo gets detailed information about a specific service
+func getServiceInfo(serviceName string) (ServiceInfo, error) {
+	// Check if service unit file exists
+	cmd := exec.Command("systemctl", "show", "--property=ActiveState,SubState,LoadState", serviceName)
+	output, err := cmd.Output()
+	if err != nil {
+		return ServiceInfo{}, err
+	}
+	
+	lines := strings.Split(string(output), "\n")
+	service := ServiceInfo{Name: serviceName}
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "ActiveState=") {
+			service.Active = strings.TrimPrefix(line, "ActiveState=")
+		} else if strings.HasPrefix(line, "SubState=") {
+			service.Sub = strings.TrimPrefix(line, "SubState=")
+		} else if strings.HasPrefix(line, "LoadState=") {
+			service.Status = strings.TrimPrefix(line, "LoadState=")
+		}
+	}
+	
+	// Only return services that are loaded (installed)
+	if service.Status != "loaded" {
+		return ServiceInfo{}, fmt.Errorf("service not loaded: %s", serviceName)
+	}
+	
+	return service, nil
 }

@@ -66,16 +66,16 @@ func (am *AlertManager) initializeNotifiers() {
 	log.Printf("DEBUG: Email config - ResendAPIKey length: %d", len(am.config.Email.ResendAPIKey))
 	log.Printf("DEBUG: Email config - FromEmail: %s", am.config.Email.FromEmail)
 	log.Printf("DEBUG: Email config - DefaultTo: %v", am.config.Email.DefaultTo)
-	
+
 	// Add email notifier if enabled
 	if am.config.Email.Enabled {
 		log.Printf("DEBUG: Email is enabled in config, creating email notifier...")
 		log.Printf("DEBUG: am.config.Email.ResendAPIKey: '%s' (length: %d)", am.config.Email.ResendAPIKey, len(am.config.Email.ResendAPIKey))
-		
+
 		// Check environment variable directly here too
 		envKey := os.Getenv("RESEND_API_KEY")
 		log.Printf("DEBUG: Direct os.Getenv(RESEND_API_KEY): '%s' (length: %d)", envKey, len(envKey))
-		
+
 		// Convert config to notifiers package format
 		notifierConfig := &notifiers.EmailConfig{
 			Enabled:         am.config.Email.Enabled,
@@ -87,7 +87,7 @@ func (am *AlertManager) initializeNotifiers() {
 			BodyTemplate:    am.config.Email.BodyTemplate,
 		}
 		log.Printf("DEBUG: notifierConfig.ResendAPIKey: '%s' (length: %d)", notifierConfig.ResendAPIKey, len(notifierConfig.ResendAPIKey))
-		
+
 		// If config is empty but env var has value, use env var directly
 		if notifierConfig.ResendAPIKey == "" && envKey != "" {
 			log.Printf("DEBUG: Config ResendAPIKey is empty but env var has value, using env var directly")
@@ -422,7 +422,7 @@ func (am *AlertManager) sendNotifications(alert *Alert, rule *AlertRule) {
 
 	for i, notifier := range am.notifiers {
 		log.Printf("DEBUG: Checking notifier %d: %s (enabled: %v)", i, notifier.Name(), notifier.IsEnabled())
-		
+
 		if !notifier.IsEnabled() {
 			log.Printf("DEBUG: Notifier %s is disabled, skipping", notifier.Name())
 			continue
@@ -441,7 +441,7 @@ func (am *AlertManager) sendNotifications(alert *Alert, rule *AlertRule) {
 
 	alert.NotificationsSent++
 	alert.LastSent = &now
-	
+
 	log.Printf("DEBUG: Notification attempt completed. Sent to: %v", alert.SentTo)
 }
 

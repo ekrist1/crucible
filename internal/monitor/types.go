@@ -168,6 +168,7 @@ type AgentConfig struct {
 	DataRetention   string `yaml:"data_retention"`
 	CollectInterval string `yaml:"collect_interval"`
 	Debug           bool   `yaml:"debug"`
+	LogFile         string `yaml:"log_file"`
 }
 
 // CollectorsConfig represents collector configuration

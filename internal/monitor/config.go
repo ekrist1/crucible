@@ -75,6 +75,9 @@ func validateAndSetDefaults(config *Config) error {
 	if config.Agent.CollectInterval == "" {
 		config.Agent.CollectInterval = "30s"
 	}
+	if config.Agent.LogFile == "" {
+		config.Agent.LogFile = "/var/log/crucible-monitor.log"
+	}
 
 	// Validate agent intervals
 	if _, err := time.ParseDuration(config.Agent.CollectInterval); err != nil {

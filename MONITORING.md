@@ -271,7 +271,7 @@ System self-monitoring capabilities:
 
 ### Log Files
 
-- **Application Logs**: `/tmp/crucible-monitor.log`
+- **Application Logs**: Configurable via `agent.log_file` in `monitor.yaml` (default: `/var/log/crucible-monitor.log`)
 - **Error Details**: Check terminal output for real-time errors
 - **Debug Mode**: Enable via `debug: true` in configuration
 

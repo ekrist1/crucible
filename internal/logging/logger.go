@@ -172,3 +172,18 @@ func DefaultLogPath() string {
 	}
 	return filepath.Join(homeDir, ".crucible", "logs", "crucible.log")
 }
+
+// ReinitializeWithPath reinitializes the logger with a new log file path
+func (l *Logger) ReinitializeWithPath(newLogFile string) error {
+	// Ensure log directory exists
+	logDir := filepath.Dir(newLogFile)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Update the log file path
+	l.logFilePath = newLogFile
+
+	l.Info("Logger reinitialized with new log file path", "path", newLogFile)
+	return nil
+}

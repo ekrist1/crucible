@@ -32,10 +32,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Initialize logger
-	logger, err := logging.NewLogger(fmt.Sprintf("/tmp/%s.log", AppName))
+	// Initialize temporary logger (fallback to temp file initially)
+	tempLogPath := fmt.Sprintf("/tmp/%s.log", AppName)
+	logger, err := logging.NewLogger(tempLogPath)
 	if err != nil {
-		fmt.Printf("Failed to initialize logger: %v\n", err)
+		fmt.Printf("Failed to initialize temporary logger: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -46,6 +47,15 @@ func main() {
 	if err != nil {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
+	}
+
+	// Reinitialize logger with configured path if different from temp
+	if config.Agent.LogFile != "" && config.Agent.LogFile != tempLogPath {
+		logger.Info("Reinitializing logger with configured path", "old_path", tempLogPath, "new_path", config.Agent.LogFile)
+		if err := logger.ReinitializeWithPath(config.Agent.LogFile); err != nil {
+			logger.Warn("Failed to reinitialize logger with configured path, continuing with temporary path",
+				"error", err, "temp_path", tempLogPath, "config_path", config.Agent.LogFile)
+		}
 	}
 
 	// Override debug setting from command line

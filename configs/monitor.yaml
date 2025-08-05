@@ -12,6 +12,9 @@ agent:
   
   # Enable debug logging
   debug: false
+  
+  # Log file path (system service should use /var/log)
+  log_file: "/var/log/crucible-monitor.log"
 
 # Data collectors configuration
 collectors:

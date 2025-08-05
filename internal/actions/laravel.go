@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"crucible/internal/git"
 )
 
 // LaravelSiteConfig contains configuration for creating a Laravel site
@@ -11,6 +13,7 @@ type LaravelSiteConfig struct {
 	SiteName string
 	Domain   string
 	GitRepo  string
+	Branch   string // Git branch to clone (optional)
 }
 
 // UpdateSiteConfig contains configuration for updating a Laravel site
@@ -40,8 +43,13 @@ func CreateLaravelSite(config LaravelSiteConfig) ([]string, []string) {
 
 	// 2. Create Laravel site (clone or new)
 	if config.GitRepo != "" {
-		commands = append(commands, fmt.Sprintf("git clone %s %s", config.GitRepo, sitePath))
-		descriptions = append(descriptions, fmt.Sprintf("Cloning Laravel app from %s...", config.GitRepo))
+		// Use enhanced Git cloning with branch support
+		branchArg := ""
+		if config.Branch != "" && config.Branch != "main" && config.Branch != "master" {
+			branchArg = fmt.Sprintf(" -b %s", config.Branch)
+		}
+		commands = append(commands, fmt.Sprintf("git clone%s %s %s", branchArg, config.GitRepo, sitePath))
+		descriptions = append(descriptions, fmt.Sprintf("Cloning Laravel app from %s (branch: %s)...", config.GitRepo, getBranchDisplay(config.Branch)))
 	} else {
 		commands = append(commands, fmt.Sprintf("composer create-project laravel/laravel %s", sitePath))
 		descriptions = append(descriptions, fmt.Sprintf("Creating fresh Laravel installation at %s...", sitePath))
@@ -133,9 +141,18 @@ func UpdateLaravelSite(config UpdateSiteConfig) ([]string, []string, error) {
 	commands = append(commands, fmt.Sprintf("cd %s && php artisan down", sitePath))
 	descriptions = append(descriptions, "Putting site in maintenance mode...")
 
-	// 2. Git pull
-	commands = append(commands, fmt.Sprintf("cd %s && git pull origin main", sitePath))
-	descriptions = append(descriptions, "Pulling latest changes from Git...")
+	// 2. Git pull using enhanced logic
+	gitRepo := git.NewRepository("/var/www")
+	currentBranch, err := gitRepo.GetCurrentBranch(selectedSite)
+	if err != nil {
+		// Fallback to old behavior if we can't detect branch
+		commands = append(commands, fmt.Sprintf("cd %s && git pull origin main", sitePath))
+		descriptions = append(descriptions, "Pulling latest changes from Git (main branch)...")
+	} else {
+		// Pull from the current branch
+		commands = append(commands, fmt.Sprintf("cd %s && git pull origin %s", sitePath, currentBranch))
+		descriptions = append(descriptions, fmt.Sprintf("Pulling latest changes from Git (%s branch)...", currentBranch))
+	}
 
 	// 3. Install/update dependencies
 	commands = append(commands, fmt.Sprintf("cd %s && composer install --no-dev --optimize-autoloader", sitePath))
@@ -168,6 +185,85 @@ func UpdateLaravelSite(config UpdateSiteConfig) ([]string, []string, error) {
 	descriptions = append(descriptions, "Bringing site back online...")
 
 	return commands, descriptions, nil
+}
+
+// getBranchDisplay returns a user-friendly branch display name
+func getBranchDisplay(branch string) string {
+	if branch == "" {
+		return "default"
+	}
+	return branch
+}
+
+// GetLaravelRepositoryStatus returns Git repository information for a Laravel site
+func GetLaravelRepositoryStatus(siteName string) (*git.RepositoryStatus, error) {
+	gitRepo := git.NewRepository("/var/www")
+	return gitRepo.GetRepositoryStatus(siteName)
+}
+
+// SwitchLaravelBranch switches a Laravel site to a different branch
+func SwitchLaravelBranch(siteName, branch string) ([]string, []string, error) {
+	sitePath := filepath.Join("/var/www", siteName)
+	gitRepo := git.NewRepository("/var/www")
+
+	// Validate the repository first
+	if err := gitRepo.ValidateRepository(siteName); err != nil {
+		return nil, nil, fmt.Errorf("invalid repository: %w", err)
+	}
+
+	var commands []string
+	var descriptions []string
+
+	// 1. Put site in maintenance mode
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan down", sitePath))
+	descriptions = append(descriptions, "Putting site in maintenance mode...")
+
+	// 2. Fetch and switch branch
+	commands = append(commands, fmt.Sprintf("cd %s && git fetch origin", sitePath))
+	descriptions = append(descriptions, "Fetching latest branch information...")
+
+	commands = append(commands, fmt.Sprintf("cd %s && git checkout %s", sitePath, branch))
+	descriptions = append(descriptions, fmt.Sprintf("Switching to branch: %s", branch))
+
+	// 3. Pull latest changes
+	commands = append(commands, fmt.Sprintf("cd %s && git pull origin %s", sitePath, branch))
+	descriptions = append(descriptions, "Pulling latest changes...")
+
+	// 4. Install/update dependencies
+	commands = append(commands, fmt.Sprintf("cd %s && composer install --no-dev --optimize-autoloader", sitePath))
+	descriptions = append(descriptions, "Updating Composer dependencies...")
+
+	// 5. Clear Laravel caches
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan config:clear", sitePath))
+	descriptions = append(descriptions, "Clearing configuration cache...")
+
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan cache:clear", sitePath))
+	descriptions = append(descriptions, "Clearing application cache...")
+
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan view:clear", sitePath))
+	descriptions = append(descriptions, "Clearing view cache...")
+
+	// 6. Run migrations (in case there are database changes)
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan migrate --force", sitePath))
+	descriptions = append(descriptions, "Running database migrations...")
+
+	// 7. Bring site back online
+	commands = append(commands, fmt.Sprintf("cd %s && php artisan up", sitePath))
+	descriptions = append(descriptions, "Bringing site back online...")
+
+	return commands, descriptions, nil
+}
+
+// ListLaravelBranches returns all available branches for a Laravel site
+func ListLaravelBranches(siteName string) ([]string, error) {
+	gitRepo := git.NewRepository("/var/www")
+	return gitRepo.ListBranches(siteName)
+}
+
+// GetLaravelCurrentBranch returns the current branch for a Laravel site
+func GetLaravelCurrentBranch(siteName string) (string, error) {
+	gitRepo := git.NewRepository("/var/www")
+	return gitRepo.GetCurrentBranch(siteName)
 }
 
 // SetupQueueWorker returns the commands and descriptions for setting up Laravel queue worker
@@ -337,4 +433,28 @@ func CreateCaddySiteConfig(domain, sitePath string) []string {
 	commands = append(commands, checkImportCmd)
 
 	return commands
+}
+
+// GetLaravelSiteStatus checks if a Laravel site is running
+func GetLaravelSiteStatus(siteName string) (bool, error) {
+	sitePath := filepath.Join("/var/www", siteName)
+	
+	// Check if site directory exists
+	if _, err := os.Stat(sitePath); os.IsNotExist(err) {
+		return false, fmt.Errorf("site directory does not exist: %s", sitePath)
+	}
+	
+	// Check if Laravel files exist (basic validation)
+	laravelFiles := []string{"artisan", "composer.json", "app"}
+	for _, file := range laravelFiles {
+		if _, err := os.Stat(filepath.Join(sitePath, file)); os.IsNotExist(err) {
+			return false, fmt.Errorf("missing Laravel file: %s", file)
+		}
+	}
+	
+	// TODO: Could also check if Caddy configuration exists and is serving the site
+	// TODO: Could ping the actual URL to see if it responds
+	
+	// For now, if the directory and files exist, consider it "running"
+	return true, nil
 }

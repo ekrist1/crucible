@@ -1,10 +1,10 @@
 package notifiers
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"text/template"
-	"bytes"
 
 	"github.com/resend/resend-go/v2"
 )
@@ -21,7 +21,7 @@ func NewEmailNotifier(config *EmailConfig) *EmailNotifier {
 	if config.ResendAPIKey != "" {
 		client = resend.NewClient(config.ResendAPIKey)
 	}
-	
+
 	return &EmailNotifier{
 		config: config,
 		client: client,
@@ -90,7 +90,7 @@ func (e *EmailNotifier) Send(alert *Alert) error {
 				Value: string(alert.Type),
 			},
 			{
-				Name:  "alert_severity", 
+				Name:  "alert_severity",
 				Value: string(alert.Severity),
 			},
 		},
@@ -298,7 +298,7 @@ func (e *EmailNotifier) sendViaResendSDK(params *resend.SendEmailRequest) error 
 	fmt.Printf("DEBUG: Tags: %v\n", params.Tags)
 	fmt.Printf("DEBUG: Client initialized: %v\n", e.client != nil)
 	fmt.Printf("DEBUG: ==================================\n")
-	
+
 	if e.client == nil {
 		return fmt.Errorf("resend client not initialized")
 	}
@@ -320,20 +320,20 @@ func (e *EmailNotifier) sendViaResendSDK(params *resend.SendEmailRequest) error 
 	fmt.Printf("DEBUG: About to call client.Emails.Send()...\n")
 	sent, err := e.client.Emails.Send(params)
 	fmt.Printf("DEBUG: client.Emails.Send() returned, err = %v\n", err)
-	
+
 	if err != nil {
 		fmt.Printf("DEBUG: ===== RESEND SDK ERROR DETAILS =====\n")
 		fmt.Printf("DEBUG: Error occurred: %v\n", err)
-		
+
 		// Handle potential nil error safely
 		if err != nil {
 			fmt.Printf("DEBUG: Error type: %T\n", err)
 			fmt.Printf("DEBUG: Error string: '%s'\n", err.Error())
-			
+
 			// Log additional context that might help debug
 			errorStr := err.Error()
 			fmt.Printf("DEBUG: Error message analysis:\n")
-			
+
 			if strings.Contains(errorStr, "domain") {
 				fmt.Printf("DEBUG: → Domain-related error detected\n")
 				if len(strings.Split(params.From, "@")) > 1 {
@@ -349,7 +349,7 @@ func (e *EmailNotifier) sendViaResendSDK(params *resend.SendEmailRequest) error 
 			}
 		}
 		fmt.Printf("DEBUG: =====================================\n")
-		
+
 		return fmt.Errorf("failed to send email via Resend SDK: %v", err)
 	}
 
