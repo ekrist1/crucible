@@ -315,7 +315,13 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 	case "python":
 		commands, descriptions, err = services.InstallPython()
 	case "nodejs":
-		commands, descriptions, err = services.InstallNode()
+		// Install Node.js with PM2 option - ask the user during processing
+		m.SetReport([]string{
+			infoStyle.Render("📦 Installing Node.js and npm..."),
+			"",
+			helpStyle.Render("Note: PM2 process manager will also be installed for production deployments"),
+		})
+		commands, descriptions, err = services.InstallNodeWithPM2(true)
 	case "mysql":
 		// For now, install MySQL without password (interactive mode)
 		commands, descriptions, err = services.InstallMySQL("")
@@ -777,7 +783,12 @@ func (m *ProcessingModel) handleLaravelQueue() {
 	for _, site := range sites {
 		// Create supervisor config for this site
 		supervisorConfigPath := fmt.Sprintf("/etc/supervisor/conf.d/laravel-queue-%s.conf", site)
-		supervisorConfig := fmt.Sprintf(`[program:laravel-queue-%s]
+		
+		// Commands to set up the queue worker
+		commands := []string{
+			// Use a heredoc to properly handle multiline config
+			fmt.Sprintf(`sudo bash -c 'cat > %s << "EOF"
+[program:laravel-queue-%s]
 process_name=%%(program_name)s_%%(process_num)02d
 command=php /var/www/%s/artisan queue:work --sleep=3 --tries=3 --max-time=3600
 autostart=true
@@ -786,11 +797,8 @@ user=www-data
 numprocs=2
 redirect_stderr=true
 stdout_logfile=/var/log/supervisor/laravel-queue-%s.log
-stopwaitsecs=3600`, site, site, site)
-		
-		// Commands to set up the queue worker
-		commands := []string{
-			fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", supervisorConfig, supervisorConfigPath),
+stopwaitsecs=3600
+EOF'`, supervisorConfigPath, site, site, site),
 			"sudo supervisorctl reread",
 			"sudo supervisorctl update",
 			fmt.Sprintf("sudo supervisorctl start laravel-queue-%s:*", site),

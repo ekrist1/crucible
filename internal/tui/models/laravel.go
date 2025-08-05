@@ -115,9 +115,12 @@ func (m *LaravelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case laravelSiteCreatedMsg:
 		if msg.err != nil {
 			m.message = fmt.Sprintf("Error creating site: %v", msg.err)
+			return m, nil
 		} else {
-			m.message = fmt.Sprintf("Site '%s' created successfully!", msg.name)
-			return m, m.loadSites()
+			// Navigate to processing state to execute the commands
+			return m, m.NavigateTo(StateProcessing, map[string]interface{}{
+				"title": "Creating Laravel Site: " + msg.name,
+			})
 		}
 		return m, nil
 	}
