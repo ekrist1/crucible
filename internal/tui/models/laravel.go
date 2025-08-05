@@ -294,8 +294,24 @@ func (f *LaravelFormModel) setupForm() {
 		},
 	}
 
-	// Step 2: Git Repository
+	// Step 2: Installation Method  
 	step2 := FormStep{
+		Title:       "Installation Method",
+		Description: "Choose how to create your Laravel application",
+		Fields: []FormField{
+			{
+				Name:      "installMethod",
+				Label:     "Installation Method",
+				FieldType: FieldTypeSelect,
+				Required:  true,
+				Value:     "Fresh Laravel",
+				Options:   []string{"Fresh Laravel", "Clone from Git"},
+			},
+		},
+	}
+
+	// Step 3: Git Repository (conditional)
+	step3 := FormStep{
 		Title:       "Git Repository",
 		Description: "Configure the Git repository for your Laravel application",
 		Fields: []FormField{
@@ -303,9 +319,9 @@ func (f *LaravelFormModel) setupForm() {
 				Name:        "gitRepo",
 				Label:       "Git Repository URL",
 				FieldType:   FieldTypeURL,
-				Required:    true,
-				Placeholder: "https://github.com/user/repo.git",
-				Validator:   validateGitURL,
+				Required:    false,
+				Placeholder: "https://github.com/user/repo.git (leave empty for fresh Laravel)",
+				Validator:   f.validateConditionalGitURL,
 			},
 			{
 				Name:        "branch",
@@ -318,8 +334,8 @@ func (f *LaravelFormModel) setupForm() {
 		},
 	}
 
-	// Step 3: Confirmation
-	step3 := FormStep{
+	// Step 4: Confirmation
+	step4 := FormStep{
 		Title:       "Confirmation",
 		Description: "Review your settings before creating the Laravel site",
 		Fields: []FormField{
@@ -338,6 +354,7 @@ func (f *LaravelFormModel) setupForm() {
 	f.form.AddStep(step1)
 	f.form.AddStep(step2)
 	f.form.AddStep(step3)
+	f.form.AddStep(step4)
 
 	// Set handlers
 	f.form.SetSubmitHandler(f.handleSubmit)
@@ -355,8 +372,21 @@ func (f *LaravelFormModel) handleSubmit(values map[string]string) tea.Cmd {
 		config := actions.LaravelSiteConfig{
 			SiteName: values["siteName"],
 			Domain:   values["domain"],
-			GitRepo:  values["gitRepo"],
-			Branch:   values["branch"],
+		}
+		
+		// Check installation method
+		installMethod := values["installMethod"]
+		if installMethod == "Clone from Git" {
+			// Only use Git repo if user chose to clone from Git
+			config.GitRepo = values["gitRepo"]
+			config.Branch = values["branch"]
+			if config.Branch == "" {
+				config.Branch = "main"
+			}
+		} else {
+			// Fresh Laravel installation - no Git repository
+			config.GitRepo = ""
+			config.Branch = ""
 		}
 		
 		// Get the commands for Laravel site creation
@@ -384,6 +414,27 @@ func (f *LaravelFormModel) handleCancel() tea.Cmd {
 	return f.GoBack()
 }
 
+// validateConditionalGitURL validates Git URL conditionally based on installation method
+func (f *LaravelFormModel) validateConditionalGitURL(url string) error {
+	installMethod := f.form.GetValue("installMethod")
+	
+	// If "Clone from Git" is selected, Git repository is required
+	if installMethod == "Clone from Git" {
+		if strings.TrimSpace(url) == "" {
+			return errors.New("Git repository URL is required when cloning from Git")
+		}
+		return validateGitURL(url)
+	}
+	
+	// If "Fresh Laravel" is selected, Git repository is optional
+	if strings.TrimSpace(url) != "" {
+		// If provided, it must be valid
+		return validateGitURL(url)
+	}
+	
+	return nil
+}
+
 // Validation functions for Laravel
 func validateLaravelSiteName(name string) error {
 	if len(name) < 2 {
@@ -400,3 +451,4 @@ func validateLaravelSiteName(name string) error {
 	}
 	return nil
 }
+

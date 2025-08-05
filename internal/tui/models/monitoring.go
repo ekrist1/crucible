@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -472,12 +473,25 @@ func (m *MonitoringModel) renderHistoricalView() string {
 	s.WriteString(infoStyle.Render(fmt.Sprintf("=== HISTORICAL DATA (%s) ===", m.getTimeRangeString())))
 	s.WriteString("\n\n")
 
-	// Generate mock historical data for visualization 
+	// Fetch real historical data from monitoring agent
 	data := m.getData()
 	timeRange := m.getTimeRange()
 	
-	// Generate sample historical data points
-	histData := m.generateHistoricalData(timeRange)
+	// Fetch real historical data points
+	histData, err := m.fetchHistoricalData(timeRange)
+	if err != nil {
+		if m.shared.Logger != nil {
+			m.shared.Logger.Warn("Failed to fetch historical data, using fallback", "error", err)
+		}
+		// Fallback to mock data if real data unavailable
+		histData = m.generateHistoricalData(timeRange)
+		s.WriteString(warnStyle.Render(fmt.Sprintf("⚠ Using simulated data (%s)", err.Error())))
+		s.WriteString("\n\n")
+	} else {
+		dataPoints := len(histData.CPUHistory)
+		s.WriteString(infoStyle.Render(fmt.Sprintf("📊 Real historical data (%d data points)", dataPoints)))
+		s.WriteString("\n\n")
+	}
 	
 	// CPU Usage Chart
 	s.WriteString(infoStyle.Render("CPU Usage Over Time:"))
@@ -514,8 +528,20 @@ func (m *MonitoringModel) renderEventsView() string {
 	s.WriteString(infoStyle.Render(fmt.Sprintf("=== EVENTS (%s) ===", m.getTimeRangeString())))
 	s.WriteString("\n\n")
 
-	// Generate historical events based on time range
-	events := m.generateHistoricalEvents(m.getTimeRange())
+	// Fetch real historical events from monitoring agent
+	events, err := m.fetchHistoricalEvents(m.getTimeRange())
+	if err != nil {
+		if m.shared.Logger != nil {
+			m.shared.Logger.Warn("Failed to fetch historical events, using fallback", "error", err)
+		}
+		// Fallback to mock data if real data unavailable
+		events = m.generateHistoricalEvents(m.getTimeRange())
+		s.WriteString(warnStyle.Render("⚠ Using simulated events (monitoring agent unavailable)"))
+		s.WriteString("\n\n")
+	} else {
+		s.WriteString(infoStyle.Render("📋 Real events from monitoring agent"))
+		s.WriteString("\n\n")
+	}
 	
 	if len(events) == 0 {
 		s.WriteString(helpStyle.Render("No events found in the selected time range"))
@@ -745,9 +771,6 @@ func (m *MonitoringModel) fetchData() tea.Cmd {
 		data, err := m.fetchRealData()
 		if err != nil {
 			// Fallback to mock data if agent is not available
-			if m.shared.Logger != nil {
-				m.shared.Logger.Info("Monitoring agent not available, using mock data", "error", err)
-			}
 			data = m.getMockData()
 			err = nil // Clear error since we have fallback data
 		}
@@ -760,27 +783,10 @@ func (m *MonitoringModel) fetchData() tea.Cmd {
 func (m *MonitoringModel) fetchRealData() (MonitoringData, error) {
 	data := MonitoringData{}
 	
-	// Log that we're attempting to fetch real data
-	if m.shared.Logger != nil {
-		m.shared.Logger.Info("Attempting to fetch real data from monitoring agent")
-	}
-	
 	// Fetch system metrics
 	systemMetrics, err := m.fetchSystemMetrics()
 	if err != nil {
-		if m.shared.Logger != nil {
-			m.shared.Logger.Error("Failed to fetch system metrics", "error", err)
-		}
 		return data, fmt.Errorf("failed to fetch system metrics: %w", err)
-	}
-	
-	// Log the retrieved metrics
-	if m.shared.Logger != nil {
-		m.shared.Logger.Info("Successfully fetched real metrics", 
-			"cpu", systemMetrics.CPUUsage,
-			"memory", systemMetrics.MemoryUsage,
-			"disk", systemMetrics.DiskUsage,
-			"load", systemMetrics.LoadAverage)
 	}
 	
 	data.SystemMetrics = systemMetrics
@@ -804,6 +810,320 @@ func (m *MonitoringModel) fetchRealData() (MonitoringData, error) {
 	
 	return data, nil
 }
+
+// fetchHistoricalData fetches real historical metrics from the monitoring agent
+func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (HistoricalData, error) {
+	// Calculate time range for API query
+	now := time.Now()
+	var since time.Time
+	
+	switch timeRange {
+	case TimeRangeLast1Hour:
+		since = now.Add(-1 * time.Hour)
+	case TimeRangeLast6Hours:
+		since = now.Add(-6 * time.Hour)
+	case TimeRangeLast24Hours:
+		since = now.Add(-24 * time.Hour)
+	case TimeRangeLast7Days:
+		since = now.Add(-7 * 24 * time.Hour)
+	case TimeRangeLast30Days:
+		since = now.Add(-30 * 24 * time.Hour)
+	default:
+		since = now.Add(-1 * time.Hour)
+	}
+	
+	// Get server entity ID first
+	serverEntityID, err := m.getServerEntityID()
+	if err != nil {
+		return HistoricalData{}, fmt.Errorf("failed to get server entity ID: %w", err)
+	}
+	
+	
+	// Fetch CPU usage history
+	cpuHistory, err := m.fetchMetricHistory(serverEntityID, "cpu_usage", since, now)
+	if err != nil {
+		return HistoricalData{}, fmt.Errorf("failed to fetch CPU history: %w", err)
+	}
+	
+	// Fetch memory usage history
+	memoryHistory, err := m.fetchMetricHistory(serverEntityID, "memory_usage", since, now)
+	if err != nil {
+		return HistoricalData{}, fmt.Errorf("failed to fetch memory history: %w", err)
+	}
+	
+	// Fetch load average history
+	loadHistory, err := m.fetchMetricHistory(serverEntityID, "load_1", since, now)
+	if err != nil {
+		return HistoricalData{}, fmt.Errorf("failed to fetch load history: %w", err)
+	}
+	
+	// Determine the maximum number of data points to display
+	maxLen := len(cpuHistory)
+	if len(memoryHistory) > maxLen {
+		maxLen = len(memoryHistory)
+	}
+	if len(loadHistory) > maxLen {
+		maxLen = len(loadHistory)
+	}
+	
+	// If no data available, return error
+	if maxLen == 0 {
+		return HistoricalData{}, fmt.Errorf("no historical data points available")
+	}
+	
+	// Create historical data structure with consistent length
+	histData := HistoricalData{
+		CPUHistory:    make([]float64, maxLen),
+		MemoryHistory: make([]float64, maxLen),
+		LoadHistory:   make([]float64, maxLen),
+		Timestamps:    make([]time.Time, maxLen),
+	}
+	
+	// Process CPU history with bounds checking
+	var cpuSum float64
+	for i := 0; i < maxLen; i++ {
+		if i < len(cpuHistory) {
+			histData.CPUHistory[i] = cpuHistory[i].Value
+			histData.Timestamps[i] = cpuHistory[i].Timestamp
+			cpuSum += cpuHistory[i].Value
+		}
+		// If CPU data is missing for this index, use 0 (already initialized)
+	}
+	if len(cpuHistory) > 0 {
+		histData.AvgCPU = cpuSum / float64(len(cpuHistory))
+	}
+	
+	// Process memory history with bounds checking
+	var memSum float64
+	for i := 0; i < maxLen; i++ {
+		if i < len(memoryHistory) {
+			histData.MemoryHistory[i] = memoryHistory[i].Value
+			memSum += memoryHistory[i].Value
+			// Use memory timestamp if CPU timestamp is missing
+			if histData.Timestamps[i].IsZero() {
+				histData.Timestamps[i] = memoryHistory[i].Timestamp
+			}
+		}
+		// If memory data is missing for this index, use 0 (already initialized)
+	}
+	if len(memoryHistory) > 0 {
+		histData.AvgMemory = memSum / float64(len(memoryHistory))
+	}
+	
+	// Process load history with bounds checking
+	var loadSum float64
+	for i := 0; i < maxLen; i++ {
+		if i < len(loadHistory) {
+			histData.LoadHistory[i] = loadHistory[i].Value
+			loadSum += loadHistory[i].Value
+			// Use load timestamp if both CPU and memory timestamps are missing
+			if histData.Timestamps[i].IsZero() {
+				histData.Timestamps[i] = loadHistory[i].Timestamp
+			}
+		}
+		// If load data is missing for this index, use 0 (already initialized)  
+	}
+	if len(loadHistory) > 0 {
+		histData.AvgLoad = loadSum / float64(len(loadHistory))
+	}
+	
+	return histData, nil
+}
+
+// Metric represents a stored metric from the monitoring agent API
+type StoredMetric struct {
+	ID        int64                  `json:"id"`
+	EntityID  *int64                 `json:"entity_id,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	MetricName string                `json:"metric_name"`
+	Value     float64                `json:"value"`
+	Tags      map[string]interface{} `json:"tags"`
+}
+
+// Entity represents a monitored entity from the storage API
+type StoredEntity struct {
+	ID   int64  `json:"id"`
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+// getServerEntityID fetches the server entity ID from the monitoring agent
+func (m *MonitoringModel) getServerEntityID() (int64, error) {
+	resp, err := http.Get("http://localhost:9090/api/v1/entities?type=server&name=localhost")
+	if err != nil {
+		return 0, fmt.Errorf("failed to connect to monitoring agent: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
+	}
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read response: %w", err)
+	}
+	
+	var response struct {
+		Entities []StoredEntity `json:"entities"`
+	}
+	
+	if err := json.Unmarshal(body, &response); err != nil {
+		return 0, fmt.Errorf("failed to parse entities response: %w", err)
+	}
+	
+	if len(response.Entities) == 0 {
+		return 0, fmt.Errorf("no server entity found")
+	}
+	
+	return response.Entities[0].ID, nil
+}
+
+// fetchMetricHistory fetches historical metrics for a specific metric from the monitoring agent
+func (m *MonitoringModel) fetchMetricHistory(entityID int64, metricName string, since, until time.Time) ([]StoredMetric, error) {
+	// Build query parameters with proper URL encoding
+	baseURL := "http://localhost:9090/api/v1/metrics"
+	params := fmt.Sprintf("entity_id=%d&metric_name=%s&since=%s&until=%s&limit=100", 
+		entityID, 
+		metricName, 
+		url.QueryEscape(since.Format(time.RFC3339)), 
+		url.QueryEscape(until.Format(time.RFC3339)))
+	
+	fullURL := fmt.Sprintf("%s?%s", baseURL, params)
+	
+	resp, err := http.Get(fullURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to monitoring agent: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
+	}
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	
+	var response struct {
+		Metrics []StoredMetric `json:"metrics"`
+		Count   int            `json:"count"`
+	}
+	
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse metrics response: %w", err)
+	}
+	
+	return response.Metrics, nil
+}
+
+// StoredEvent represents an event from the monitoring agent API  
+type StoredEvent struct {
+	ID        int64                  `json:"id"`
+	EntityID  *int64                 `json:"entity_id,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	Type      string                 `json:"event_type"`
+	Severity  string                 `json:"severity"`
+	Message   string                 `json:"message"`
+	Details   map[string]interface{} `json:"details"`
+}
+
+// fetchHistoricalEvents fetches real historical events from the monitoring agent
+func (m *MonitoringModel) fetchHistoricalEvents(timeRange HistoricalTimeRange) ([]MonitoringEvent, error) {
+	// Calculate time range for API query
+	now := time.Now()
+	var since time.Time
+	
+	switch timeRange {
+	case TimeRangeLast1Hour:
+		since = now.Add(-1 * time.Hour)
+	case TimeRangeLast6Hours:
+		since = now.Add(-6 * time.Hour)
+	case TimeRangeLast24Hours:
+		since = now.Add(-24 * time.Hour)
+	case TimeRangeLast7Days:
+		since = now.Add(-7 * 24 * time.Hour)
+	case TimeRangeLast30Days:
+		since = now.Add(-30 * 24 * time.Hour)
+	default:
+		since = now.Add(-1 * time.Hour)
+	}
+	
+	// Build query parameters
+	params := fmt.Sprintf("since=%s&until=%s&limit=50", 
+		since.Format(time.RFC3339), now.Format(time.RFC3339))
+	
+	url := fmt.Sprintf("http://localhost:9090/api/v1/events?%s", params)
+	
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to monitoring agent: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
+	}
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	
+	var response struct {
+		Events []StoredEvent `json:"events"`
+		Count  int           `json:"count"`
+	}
+	
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse events response: %w", err)
+	}
+	
+	// Convert StoredEvent to MonitoringEvent
+	events := make([]MonitoringEvent, len(response.Events))
+	for i, storedEvent := range response.Events {
+		events[i] = MonitoringEvent{
+			ID:        fmt.Sprintf("%d", storedEvent.ID),
+			Type:      m.mapEventType(storedEvent.Type),
+			Severity:  storedEvent.Severity,
+			Source:    m.getEventSource(storedEvent),
+			Message:   storedEvent.Message,
+			Timestamp: storedEvent.Timestamp,
+			Resolved:  storedEvent.Type == "alert" && storedEvent.Severity == "info", // Simple resolved logic
+		}
+	}
+	
+	return events, nil
+}
+
+// mapEventType maps storage event types to TUI event types
+func (m *MonitoringModel) mapEventType(storageType string) string {
+	switch storageType {
+	case "install", "uninstall", "update", "start", "stop", "restart", "maintenance":
+		return "service"
+	case "error", "warning", "alert":
+		return "alert"
+	case "info", "backup", "restore":
+		return "system"
+	default:
+		return "system"
+	}
+}
+
+// getEventSource extracts the source from event details or defaults to event type
+func (m *MonitoringModel) getEventSource(event StoredEvent) string {
+	// Try to get source from details
+	if source, ok := event.Details["source"].(string); ok {
+		return source
+	}
+	if service, ok := event.Details["service"].(string); ok {
+		return service
+	}
+	// Default to event type
+	return strings.Title(event.Type)
+}
+
 // startAutoRefresh starts the auto-refresh timer
 func (m *MonitoringModel) startAutoRefresh() tea.Cmd {
 	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {

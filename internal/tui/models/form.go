@@ -139,10 +139,20 @@ func (f *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			f.showHelp = !f.showHelp
 
 		case "left":
-			f.moveCursorLeft()
+			// For select fields, move to previous option
+			if f.isCurrentFieldSelect() {
+				f.cyclePrevSelectOption()
+			} else {
+				f.moveCursorLeft()
+			}
 
 		case "right":
-			f.moveCursorRight()
+			// For select fields, move to next option
+			if f.isCurrentFieldSelect() {
+				f.cycleSelectOption(*f.getCurrentField())
+			} else {
+				f.moveCursorRight()
+			}
 
 		case "home":
 			f.inputCursor = 0
@@ -156,10 +166,19 @@ func (f *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "delete":
 			f.handleDelete()
 
+		case "ctrl+v":
+			// For now, show a message about paste
+			// In a real terminal, Ctrl+V should trigger the system paste
+			// which will appear as regular character input
+			return f, nil
+
 		default:
-			// Handle regular character input
+			// Handle regular character input (including pasted text)
 			if len(msg.String()) == 1 {
 				f.handleCharacterInput(msg.String())
+			} else if len(msg.String()) > 1 {
+				// This could be pasted text - handle it as such
+				f.handlePaste(msg.String())
 			}
 		}
 	}
@@ -299,14 +318,18 @@ func (f *FormModel) renderSelectField(field FormField, isCurrent bool) string {
 
 	// Show dropdown options
 	var s strings.Builder
-	s.WriteString(value)
-	s.WriteString(" (Press Space to select)\n")
+	s.WriteString(selectedStyle.Render(value))
+	s.WriteString(" (Use ←/→/Space to change)\n")
 	for _, option := range field.Options {
 		prefix := "    "
+		optionText := option
 		if option == value {
 			prefix = "  → "
+			optionText = selectedStyle.Render(option)
+		} else {
+			optionText = choiceStyle.Render(option)
 		}
-		s.WriteString(prefix + option + "\n")
+		s.WriteString(prefix + optionText + "\n")
 	}
 	return s.String()
 }
@@ -323,10 +346,12 @@ func (f *FormModel) renderHelp() string {
 		"  Esc        - Cancel",
 		"",
 		"Editing:",
-		"  ←/→        - Move cursor",
+		"  ←/→        - Move cursor (or select options)",
+		"  Space      - Cycle select options",
 		"  Home/End   - Start/End of field",
 		"  Backspace  - Delete char before cursor",
 		"  Delete     - Delete char at cursor",
+		"  Ctrl+V     - Paste from clipboard",
 		"",
 		"Press Ctrl+H to hide help",
 	}
@@ -438,6 +463,49 @@ func (f *FormModel) handleCharacterInput(char string) {
 	delete(f.errors, field.Name)
 }
 
+func (f *FormModel) handlePaste(pastedText string) {
+	if f.currentStep >= len(f.steps) {
+		return
+	}
+
+	step := f.steps[f.currentStep]
+	if f.currentField >= len(step.Fields) {
+		return
+	}
+
+	field := step.Fields[f.currentField]
+	currentValue := f.values[field.Name]
+
+	// Handle select fields - ignore paste for select fields
+	if field.FieldType == FieldTypeSelect {
+		return
+	}
+
+	// Clean pasted text (remove newlines and control characters for single-line fields)
+	cleanText := strings.ReplaceAll(pastedText, "\n", "")
+	cleanText = strings.ReplaceAll(cleanText, "\r", "")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+
+	// Check max length constraint
+	if field.MaxLength > 0 {
+		maxInsertLength := field.MaxLength - len(currentValue)
+		if maxInsertLength <= 0 {
+			return // Can't insert anything
+		}
+		if len(cleanText) > maxInsertLength {
+			cleanText = cleanText[:maxInsertLength]
+		}
+	}
+
+	// Insert pasted text at cursor position
+	newValue := currentValue[:f.inputCursor] + cleanText + currentValue[f.inputCursor:]
+	f.values[field.Name] = newValue
+	f.inputCursor += len(cleanText)
+
+	// Clear error for this field
+	delete(f.errors, field.Name)
+}
+
 func (f *FormModel) handleBackspace() {
 	if f.inputCursor > 0 {
 		currentValue := f.getCurrentFieldValue()
@@ -487,6 +555,36 @@ func (f *FormModel) cycleSelectOption(field FormField) {
 	// Move to next option
 	nextIndex := (currentIndex + 1) % len(field.Options)
 	f.values[field.Name] = field.Options[nextIndex]
+}
+
+func (f *FormModel) cyclePrevSelectOption() {
+	field := f.getCurrentField()
+	if field == nil || len(field.Options) == 0 {
+		return
+	}
+
+	currentValue := f.values[field.Name]
+	currentIndex := -1
+	
+	// Find current option index
+	for i, option := range field.Options {
+		if option == currentValue {
+			currentIndex = i
+			break
+		}
+	}
+
+	// Move to previous option
+	prevIndex := currentIndex - 1
+	if prevIndex < 0 {
+		prevIndex = len(field.Options) - 1
+	}
+	f.values[field.Name] = field.Options[prevIndex]
+}
+
+func (f *FormModel) isCurrentFieldSelect() bool {
+	field := f.getCurrentField()
+	return field != nil && field.FieldType == FieldTypeSelect
 }
 
 // Utility methods

@@ -148,3 +148,15 @@ func (sd *SharedData) GetContentWidth() int {
 	}
 	return sd.TerminalWidth - reservedWidth
 }
+
+// NewCommandQueue creates a new CommandQueue instance
+func NewCommandQueue() *CommandQueue {
+	return &CommandQueue{
+		Commands:     []string{},
+		Descriptions: []string{},
+		Index:        0,
+		ServiceName:  "",
+		Results:      []string{},
+		IsProcessing: false,
+	}
+}
