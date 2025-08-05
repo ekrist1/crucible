@@ -64,6 +64,7 @@ func (a *AppModel) initializeModels() {
 	a.models[StateNextJSMenu] = NewNextJSModel(a.shared)
 	a.models[StateNextJSCreate] = NewNextJSFormModel(a.shared)
 	a.models[StateLaravelCreate] = NewLaravelFormModel(a.shared)
+	a.models[StateNodeJSInstall] = NewNodeJSFormModel(a.shared)
 	a.models[StateMonitoring] = NewMonitoringModel(a.shared)
 	a.models[StateLogViewer] = NewLogViewerModel(a.shared)
 }

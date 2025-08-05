@@ -337,27 +337,10 @@ func (f *LaravelFormModel) setupForm() {
 		},
 	}
 
-	// Step 4: Confirmation
-	step4 := FormStep{
-		Title:       "Confirmation",
-		Description: "Review your settings before creating the Laravel site",
-		Fields: []FormField{
-			{
-				Name:      "confirm",
-				Label:     "Create Laravel Site?",
-				FieldType: FieldTypeSelect,
-				Required:  true,
-				Value:     "Yes",
-				Options:   []string{"Yes", "No"},
-			},
-		},
-	}
-
 	// Add steps to form
 	f.form.AddStep(step1)
 	f.form.AddStep(step2)
 	f.form.AddStep(step3)
-	f.form.AddStep(step4)
 
 	// Set handlers
 	f.form.SetSubmitHandler(f.handleSubmit)
@@ -367,9 +350,6 @@ func (f *LaravelFormModel) setupForm() {
 // handleSubmit handles form submission
 func (f *LaravelFormModel) handleSubmit(values map[string]string) tea.Cmd {
 	return func() tea.Msg {
-		if values["confirm"] != "Yes" {
-			return laravelSiteCreatedMsg{name: "", err: errors.New("site creation cancelled")}
-		}
 
 		// Create the Laravel site using the actions package
 		config := actions.LaravelSiteConfig{

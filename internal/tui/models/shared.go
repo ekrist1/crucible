@@ -39,6 +39,7 @@ const (
 	StateNextJSMenu
 	StateNextJSCreate
 	StateLaravelCreate
+	StateNodeJSInstall
 	StateMonitoring
 )
 

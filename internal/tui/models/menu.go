@@ -224,8 +224,12 @@ func (m *MenuModel) handleMainMenuNavigation(item MenuItem) (tea.Model, tea.Cmd)
 
 // handleCoreServicesNavigation handles core services menu navigation
 func (m *MenuModel) handleCoreServicesNavigation(item MenuItem) (tea.Model, tea.Cmd) {
-	// This would trigger specific installation processes
-	// For now, we'll navigate to processing state with the service name
+	// Special handling for Node.js to show PM2 option form
+	if item.ServiceKey == "nodejs" {
+		return m, m.NavigateTo(StateNodeJSInstall, nil)
+	}
+	
+	// For other services, navigate to processing state
 	return m, m.NavigateTo(StateProcessing, map[string]interface{}{
 		"action":  "install",
 		"service": item.ServiceKey,

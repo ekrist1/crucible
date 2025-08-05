@@ -315,13 +315,14 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 	case "python":
 		commands, descriptions, err = services.InstallPython()
 	case "nodejs":
-		// Install Node.js with PM2 option - ask the user during processing
+		// This case should no longer be reached as Node.js now uses a form
 		m.SetReport([]string{
-			infoStyle.Render("📦 Installing Node.js and npm..."),
+			errorStyle.Render("❌ Node.js installation should use the configuration form"),
 			"",
-			helpStyle.Render("Note: PM2 process manager will also be installed for production deployments"),
+			helpStyle.Render("Please use the Node.js installation form from the menu"),
 		})
-		commands, descriptions, err = services.InstallNodeWithPM2(true)
+		m.SetComplete(true)
+		return
 	case "mysql":
 		// For now, install MySQL without password (interactive mode)
 		commands, descriptions, err = services.InstallMySQL("")
