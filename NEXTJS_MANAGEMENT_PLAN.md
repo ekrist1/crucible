@@ -68,8 +68,8 @@ internal/
 │   ├── menu.go             # Updated main menu with Next.js option
 │   └── [other TUI files]   # Existing TUI infrastructure
 └── utils/                   # 🔄 PARTIAL - Node.js utilities
-    ├── nodejs.go           # ⏳ TODO - Node.js version management
-    └── packagemanager.go   # ⏳ TODO - Advanced package manager features
+    ├── nodejs.go           # 📝 FUTURE - Node.js version management
+    └── packagemanager.go   # 📝 FUTURE - Advanced package manager features
 ```
 
 **Architecture Changes Made:**
@@ -201,16 +201,16 @@ sites:
 ### Phase 5: Advanced Features 🔄 **IN PROGRESS**
 - ✅ **COMPLETED**: Basic repository status and branch management
 - ✅ **COMPLETED**: Site information with Git integration
-- ⏳ **TODO**: Database integration setup
-- ⏳ **TODO**: CI/CD pipeline integration
-- ⏳ **TODO**: Backup and rollback functionality
-- ⏳ **TODO**: Performance monitoring and optimization
+- 📝 **FUTURE**: Database integration setup
+- 📝 **FUTURE**: CI/CD pipeline integration
+- 📝 **FUTURE**: Backup and rollback functionality
+- 📝 **FUTURE**: Performance monitoring and optimization
 
-### Phase 6: Polish & Testing ⏳ **PENDING**
-- ⏳ Enhanced error handling and recovery
-- ⏳ Comprehensive testing
-- ⏳ Documentation and examples
-- ⏳ Security hardening (environment encryption)
+### Phase 6: Polish & Testing 📝 **FUTURE ROADMAP**
+- 📝 Enhanced error handling and recovery
+- 📝 Comprehensive testing
+- 📝 Documentation and examples
+- 📝 Security hardening (environment encryption)
 
 ## 🎉 Current Achievements
 

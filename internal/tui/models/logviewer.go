@@ -11,12 +11,12 @@ import (
 // LogViewerModel handles log file viewing
 type LogViewerModel struct {
 	BaseModel
-	lines        []string
-	scrollPos    int
-	filter       string
-	loading      bool
-	filterMode   bool
-	filterInput  textinput.Model
+	lines       []string
+	scrollPos   int
+	filter      string
+	loading     bool
+	filterMode  bool
+	filterInput textinput.Model
 }
 
 // Log loading message
@@ -198,7 +198,7 @@ func (m *LogViewerModel) View() string {
 		// Scroll indicator
 		if len(filteredLines) > viewableLines {
 			s.WriteString("\n")
-			scrollInfo := fmt.Sprintf("Showing lines %d-%d of %d", 
+			scrollInfo := fmt.Sprintf("Showing lines %d-%d of %d",
 				startLine+1, endLine, len(filteredLines))
 			s.WriteString(helpStyle.Render(scrollInfo))
 		}

@@ -75,7 +75,7 @@ func (m *NextJSModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.GoBack()
 		case "c":
 			// Create new site
-			return m, m.NavigateTo(StateNextJSCreate, nil)
+			return m, m.NavigateTo(StateNextJSCreateHybrid, nil)
 		case "r":
 			// Refresh sites
 			m.loading = true
@@ -161,7 +161,7 @@ func (m *NextJSModel) View() string {
 				case "online":
 					status = "🟢" // Running
 				case "stopped":
-					status = "🔴" // Stopped  
+					status = "🔴" // Stopped
 				case "errored":
 					status = "🟡" // Error state
 				default:
@@ -176,7 +176,7 @@ func (m *NextJSModel) View() string {
 				siteName = choiceStyle.Render(siteName)
 			}
 
-			s.WriteString(fmt.Sprintf("%s%s %s (Port: %d, Domain: %s)\n", 
+			s.WriteString(fmt.Sprintf("%s%s %s (Port: %d, Domain: %s)\n",
 				cursor, status, siteName, site.Port, site.Domain))
 		}
 		s.WriteString("\n")
@@ -386,7 +386,7 @@ func (f *NextJSFormModel) handleSubmit(values map[string]string) tea.Cmd {
 			StartCommand:   values["startCommand"],
 			Environment:    values["environment"],
 		}
-		
+
 		// Parse PM2 instances
 		if instances := values["instances"]; instances == "max" {
 			site.PM2Instances = 0 // PM2 will use max instances
@@ -403,12 +403,12 @@ func (f *NextJSFormModel) handleSubmit(values map[string]string) tea.Cmd {
 				site.PM2Instances = 1
 			}
 		}
-		
+
 		// Create the site using NextJSManager
 		if err := f.manager.CreateSite(site); err != nil {
 			return nextjsSiteCreatedMsg{name: site.Name, err: err}
 		}
-		
+
 		return nextjsSiteCreatedMsg{name: site.Name, err: nil}
 	}
 }

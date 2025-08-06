@@ -7,20 +7,20 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"crucible/internal/actions"
 	"crucible/internal/logging"
 	"crucible/internal/services"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ProcessingModel handles command execution and result display
 type ProcessingModel struct {
 	BaseModel
-	message      string
-	report       []string
-	scrollPos    int
-	isComplete   bool
-	canNavigate  bool
+	message     string
+	report      []string
+	scrollPos   int
+	isComplete  bool
+	canNavigate bool
 }
 
 // NewProcessingModel creates a new processing model
@@ -143,7 +143,7 @@ func (m *ProcessingModel) View() string {
 		if len(m.report) > viewableLines {
 			totalLines := len(m.report)
 			s.WriteString("\n")
-			scrollInfo := fmt.Sprintf("Showing lines %d-%d of %d", 
+			scrollInfo := fmt.Sprintf("Showing lines %d-%d of %d",
 				startLine+1, endLine, totalLines)
 			s.WriteString(helpStyle.Render(scrollInfo))
 		}
@@ -186,8 +186,10 @@ func (m *ProcessingModel) handleCommandCompleted(msg CmdCompletedMsg) {
 		return
 	}
 
-	// Command succeeded
-	m.report = append(m.report, infoStyle.Render("✅ Command completed successfully"))
+	// Command succeeded - only show success message for non-security operations
+	if !isSecurityOperation(msg.ServiceName) {
+		m.report = append(m.report, infoStyle.Render("✅ Command completed successfully"))
+	}
 	if strings.TrimSpace(msg.Result.Output) != "" {
 		m.report = append(m.report, msg.Result.Output)
 	}
@@ -206,8 +208,29 @@ func (m *ProcessingModel) handleCommandCompleted(msg CmdCompletedMsg) {
 		queue.Reset()
 		m.message = ""
 		m.isComplete = true
-		m.report = append(m.report, infoStyle.Render("✅ All operations completed successfully"))
+		
+		// Only show completion message for non-security operations
+		if !isSecurityOperation(msg.ServiceName) {
+			m.report = append(m.report, infoStyle.Render("✅ All operations completed successfully"))
+		}
 	}
+}
+
+// isSecurityOperation checks if the service name indicates a security operation
+func isSecurityOperation(serviceName string) bool {
+	securityOperations := []string{
+		"Security Assessment",
+		"Security Status", 
+		"Security Report",
+		"Security Hardening",
+	}
+	
+	for _, op := range securityOperations {
+		if strings.Contains(serviceName, op) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetMessage sets the current processing message
@@ -241,7 +264,7 @@ func (m *ProcessingModel) Initialize(data interface{}) {
 			m.handleAction(action, initData)
 			return
 		}
-		
+
 		// Handle legacy initialization data
 		if message, exists := initData["message"].(string); exists {
 			m.SetMessage(message)
@@ -283,6 +306,12 @@ func (m *ProcessingModel) handleAction(action string, data map[string]interface{
 				m.handleServiceControl(serviceName, serviceAction)
 			}
 		}
+	case "security-assessment":
+		m.handleSecurityAssessment()
+	case "security-status":
+		m.handleSecurityStatus()
+	case "security-report":
+		m.handleSecurityReport()
 	default:
 		m.SetMessage(fmt.Sprintf("Unknown action: %s", action))
 		m.SetComplete(true)
@@ -298,15 +327,15 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 			label = labelStr
 		}
 	}
-	
+
 	m.message = fmt.Sprintf("Starting %s installation...", serviceKey)
 	m.isComplete = false
-	
+
 	// Get installation commands based on service key
 	var commands []string
 	var descriptions []string
 	var err error
-	
+
 	switch serviceKey {
 	case "php":
 		commands, descriptions, err = services.InstallPHP()
@@ -341,7 +370,7 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 		m.SetComplete(true)
 		return
 	}
-	
+
 	if err != nil {
 		m.SetReport([]string{
 			errorStyle.Render(fmt.Sprintf("❌ Error getting installation commands for %s:", serviceKey)),
@@ -350,7 +379,7 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 		m.SetComplete(true)
 		return
 	}
-	
+
 	if len(commands) == 0 {
 		m.SetReport([]string{
 			errorStyle.Render(fmt.Sprintf("❌ No installation commands available for %s", serviceKey)),
@@ -358,16 +387,16 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 		m.SetComplete(true)
 		return
 	}
-	
+
 	// Initialize command queue
 	if m.shared.CommandQueue == nil {
 		m.shared.CommandQueue = NewCommandQueue()
 	}
-	
+
 	// Reset and populate command queue
 	m.shared.CommandQueue.Reset()
 	m.shared.CommandQueue.ServiceName = serviceKey
-	
+
 	// Add commands to queue
 	for i, command := range commands {
 		description := fmt.Sprintf("Step %d/%d: Installing %s", i+1, len(commands), serviceKey)
@@ -376,7 +405,7 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 		}
 		m.shared.CommandQueue.AddCommand(command, description)
 	}
-	
+
 	// Set initial report
 	report := []string{
 		titleStyle.Render(fmt.Sprintf("🔧 %s", label)),
@@ -384,15 +413,15 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 		infoStyle.Render(fmt.Sprintf("Starting installation of %s...", serviceKey)),
 		"",
 	}
-	
+
 	// Show installation steps
 	for i, desc := range descriptions {
 		report = append(report, fmt.Sprintf("%d. %s", i+1, desc))
 	}
-	
+
 	report = append(report, "", infoStyle.Render("Starting installation..."))
 	m.SetReport(report)
-	
+
 	// Start processing the queue
 	if m.shared.CommandQueue.HasNext() {
 		command, description, ok := m.shared.CommandQueue.Next()
@@ -407,10 +436,9 @@ func (m *ProcessingModel) handleServiceInstallation(serviceKey string, data map[
 // executeCommand executes a shell command asynchronously
 func (m *ProcessingModel) executeCommand(command, serviceName string) {
 	startTime := time.Now()
-	
-	// Parse the command to separate command and arguments
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+
+	// Check for empty command
+	if strings.TrimSpace(command) == "" {
 		// Empty command, send completion message with error
 		result := logging.LoggedExecResult{
 			Command:   command,
@@ -419,7 +447,7 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 			ExitCode:  1,
 			StartTime: startTime,
 		}
-		
+
 		// Handle the error result
 		completedMsg := CmdCompletedMsg{
 			Result:      result,
@@ -428,17 +456,13 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 		m.handleCommandCompleted(completedMsg)
 		return
 	}
-	
-	var cmd *exec.Cmd
-	if len(parts) == 1 {
-		cmd = exec.Command(parts[0])
-	} else {
-		cmd = exec.Command(parts[0], parts[1:]...)
-	}
-	
+
+	// Use bash -c for shell compatibility (same as app.go)
+	cmd := exec.Command("bash", "-c", command)
+
 	// Execute the command
 	output, err := cmd.CombinedOutput()
-	
+
 	// Get exit code safely
 	exitCode := 0
 	if err != nil {
@@ -450,7 +474,7 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 	} else if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
 	}
-	
+
 	// Create the result
 	result := logging.LoggedExecResult{
 		Command:   command,
@@ -459,12 +483,12 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 		ExitCode:  exitCode,
 		StartTime: startTime,
 	}
-	
+
 	// Log the command execution
 	if m.shared.Logger != nil {
 		m.shared.Logger.LogCommand(result)
 	}
-	
+
 	// Send completion message - this is the tricky part
 	// We need to send this back to the Bubble Tea program
 	// In a real implementation, we'd use a channel or other mechanism
@@ -474,7 +498,7 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 		Result:      result,
 		ServiceName: serviceName,
 	}
-	
+
 	// In a proper implementation, we'd send this through a channel
 	// that the main Update loop monitors, but for now we'll handle it directly
 	// This is a limitation of the current architecture
@@ -487,23 +511,23 @@ func (m *ProcessingModel) startProcessing() tea.Cmd {
 	if queue == nil || !queue.HasNext() {
 		return nil
 	}
-	
+
 	// Mark as processing
 	queue.IsProcessing = true
 	m.isComplete = false
-	
+
 	// Get the first command
 	command, description, ok := queue.Next()
 	if !ok {
 		return nil
 	}
-	
+
 	// Set the current message
 	m.message = description
-	
+
 	// Start executing the command asynchronously
 	go m.executeCommand(command, queue.ServiceName)
-	
+
 	return nil
 }
 
@@ -511,39 +535,39 @@ func (m *ProcessingModel) startProcessing() tea.Cmd {
 func (m *ProcessingModel) handleSystemStatus() {
 	m.message = "Generating system status report..."
 	m.isComplete = false
-	
+
 	// Create a comprehensive system status report
 	report := []string{
 		titleStyle.Render("=== SYSTEM STATUS REPORT ==="),
 		"",
 		infoStyle.Render("📊 System Information:"),
 	}
-	
+
 	// Get system information
 	if output, err := m.executeCommandSync("uname", "-a"); err == nil {
 		report = append(report, fmt.Sprintf("System: %s", strings.TrimSpace(output)))
 	}
-	
+
 	if output, err := m.executeCommandSync("uptime"); err == nil {
 		report = append(report, fmt.Sprintf("Uptime: %s", strings.TrimSpace(output)))
 	}
-	
+
 	if output, err := m.executeCommandSync("df", "-h", "/"); err == nil {
 		lines := strings.Split(output, "\n")
 		if len(lines) > 1 {
 			report = append(report, fmt.Sprintf("Disk Usage: %s", strings.TrimSpace(lines[1])))
 		}
 	}
-	
+
 	if output, err := m.executeCommandSync("free", "-h"); err == nil {
 		lines := strings.Split(output, "\n")
 		if len(lines) > 1 {
 			report = append(report, fmt.Sprintf("Memory: %s", strings.TrimSpace(lines[1])))
 		}
 	}
-	
+
 	report = append(report, "", infoStyle.Render("🔧 Service Status:"))
-	
+
 	// Check common services
 	services := []string{"mysql", "mysqld", "caddy", "nginx", "php-fpm", "supervisor"}
 	for _, service := range services {
@@ -556,18 +580,18 @@ func (m *ProcessingModel) handleSystemStatus() {
 			report = append(report, fmt.Sprintf("%s %s: %s", icon, service, status))
 		}
 	}
-	
+
 	report = append(report, "", infoStyle.Render("💻 Software Versions:"))
-	
+
 	// Check software versions
 	softwareChecks := map[string][]string{
-		"PHP":     {"php", "--version"},
-		"Node.js": {"node", "--version"},
-		"Git":     {"git", "--version"},
+		"PHP":      {"php", "--version"},
+		"Node.js":  {"node", "--version"},
+		"Git":      {"git", "--version"},
 		"Composer": {"composer", "--version"},
-		"Python":  {"python3", "--version"},
+		"Python":   {"python3", "--version"},
 	}
-	
+
 	for name, cmd := range softwareChecks {
 		if output, err := m.executeCommandSync(cmd[0], cmd[1:]...); err == nil {
 			lines := strings.Split(output, "\n")
@@ -582,7 +606,7 @@ func (m *ProcessingModel) handleSystemStatus() {
 			report = append(report, fmt.Sprintf("❌ %s: Not installed", name))
 		}
 	}
-	
+
 	m.SetReport(report)
 	m.SetComplete(true)
 }
@@ -591,7 +615,7 @@ func (m *ProcessingModel) handleSystemStatus() {
 func (m *ProcessingModel) handleLaravelList() {
 	m.message = "Loading Laravel sites..."
 	m.isComplete = false
-	
+
 	// Import the actions package functionality
 	sites, err := actions.ListLaravelSites()
 	if err != nil {
@@ -602,7 +626,7 @@ func (m *ProcessingModel) handleLaravelList() {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	if len(sites) == 0 {
 		m.SetReport([]string{
 			warnStyle.Render("⚠️ No Laravel sites found"),
@@ -612,20 +636,20 @@ func (m *ProcessingModel) handleLaravelList() {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	report := []string{
 		titleStyle.Render("🚀 Laravel Sites Available for Update"),
 		"",
 		infoStyle.Render("Available Laravel installations:"),
 		"",
 	}
-	
+
 	for i, site := range sites {
 		statusIcon := "🔴"
 		if isRunning, err := actions.GetLaravelSiteStatus(site); err == nil && isRunning {
 			statusIcon = "🟢"
 		}
-		
+
 		// Get Git repository status if available
 		gitStatus := ""
 		if repoStatus, err := actions.GetLaravelRepositoryStatus(site); err == nil {
@@ -634,10 +658,10 @@ func (m *ProcessingModel) handleLaravelList() {
 				gitStatus += " [Modified]"
 			}
 		}
-		
+
 		report = append(report, fmt.Sprintf("%s [%d] %s%s (/var/www/%s)", statusIcon, i+1, site, gitStatus, site))
 	}
-	
+
 	report = append(report,
 		"",
 		infoStyle.Render("Starting update process for all sites..."),
@@ -646,16 +670,16 @@ func (m *ProcessingModel) handleLaravelList() {
 		helpStyle.Render("Sites will be put in maintenance mode during updates."),
 		"",
 	)
-	
+
 	// Initialize command queue for updating all sites
 	if m.shared.CommandQueue == nil {
 		m.shared.CommandQueue = NewCommandQueue()
 	}
-	
+
 	// Reset and populate command queue
 	m.shared.CommandQueue.Reset()
 	m.shared.CommandQueue.ServiceName = "Laravel Site Updates"
-	
+
 	// Process each site
 	updatedSites := 0
 	for i, site := range sites {
@@ -664,19 +688,19 @@ func (m *ProcessingModel) handleLaravelList() {
 			SiteIndex: fmt.Sprintf("%d", i+1),
 			Sites:     sites,
 		}
-		
+
 		commands, descriptions, err := actions.UpdateLaravelSite(updateConfig)
 		if err != nil {
 			// Add error to report but continue with other sites
 			report = append(report, errorStyle.Render(fmt.Sprintf("❌ Cannot update %s: %v", site, err)))
 			continue
 		}
-		
+
 		// Add separator between sites
 		if updatedSites > 0 {
 			m.shared.CommandQueue.AddCommand("echo \"\"", fmt.Sprintf("--- Updating %s ---", site))
 		}
-		
+
 		// Add commands for this site
 		for j, cmd := range commands {
 			desc := fmt.Sprintf("Step %d: Updating %s", j+1, site)
@@ -685,10 +709,10 @@ func (m *ProcessingModel) handleLaravelList() {
 			}
 			m.shared.CommandQueue.AddCommand(cmd, desc)
 		}
-		
+
 		updatedSites++
 	}
-	
+
 	if updatedSites == 0 {
 		report = append(report,
 			warnStyle.Render("⚠️ No sites can be updated"),
@@ -699,8 +723,8 @@ func (m *ProcessingModel) handleLaravelList() {
 		m.SetComplete(true)
 		return
 	}
-	
-	report = append(report, 
+
+	report = append(report,
 		infoStyle.Render(fmt.Sprintf("Updating %d Laravel sites...", updatedSites)),
 		"",
 		helpStyle.Render("Update process:"),
@@ -714,9 +738,9 @@ func (m *ProcessingModel) handleLaravelList() {
 		"",
 		infoStyle.Render("Starting updates..."),
 	)
-	
+
 	m.SetReport(report)
-	
+
 	// Start processing the queue
 	if m.shared.CommandQueue.HasNext() {
 		command, description, ok := m.shared.CommandQueue.Next()
@@ -731,7 +755,7 @@ func (m *ProcessingModel) handleLaravelList() {
 func (m *ProcessingModel) handleLaravelQueue() {
 	m.message = "Setting up Laravel Queue Worker..."
 	m.isComplete = false
-	
+
 	// Get available Laravel sites
 	sites, err := actions.ListLaravelSites()
 	if err != nil {
@@ -742,7 +766,7 @@ func (m *ProcessingModel) handleLaravelQueue() {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	if len(sites) == 0 {
 		m.SetReport([]string{
 			warnStyle.Render("⚠️ No Laravel sites found"),
@@ -752,7 +776,7 @@ func (m *ProcessingModel) handleLaravelQueue() {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	// For now, we'll set up queue workers for all Laravel sites
 	report := []string{
 		titleStyle.Render("🔄 Laravel Queue Worker Setup"),
@@ -760,31 +784,31 @@ func (m *ProcessingModel) handleLaravelQueue() {
 		infoStyle.Render("Available Laravel sites:"),
 		"",
 	}
-	
+
 	for i, site := range sites {
 		report = append(report, fmt.Sprintf("%d. %s (/var/www/%s)", i+1, site, site))
 	}
-	
-	report = append(report, 
+
+	report = append(report,
 		"",
 		infoStyle.Render("Setting up Supervisor configuration for Laravel queue workers..."),
 		"",
 	)
-	
+
 	// Initialize command queue for queue worker setup
 	if m.shared.CommandQueue == nil {
 		m.shared.CommandQueue = NewCommandQueue()
 	}
-	
+
 	// Reset and populate command queue
 	m.shared.CommandQueue.Reset()
 	m.shared.CommandQueue.ServiceName = "Laravel Queue Workers"
-	
+
 	// Add commands for each site
 	for _, site := range sites {
 		// Create supervisor config for this site
 		supervisorConfigPath := fmt.Sprintf("/etc/supervisor/conf.d/laravel-queue-%s.conf", site)
-		
+
 		// Commands to set up the queue worker
 		commands := []string{
 			// Use a heredoc to properly handle multiline config
@@ -804,14 +828,14 @@ EOF'`, supervisorConfigPath, site, site, site),
 			"sudo supervisorctl update",
 			fmt.Sprintf("sudo supervisorctl start laravel-queue-%s:*", site),
 		}
-		
+
 		descriptions := []string{
 			fmt.Sprintf("Creating Supervisor config for %s queue worker...", site),
 			"Reloading Supervisor configuration...",
 			"Updating Supervisor programs...",
 			fmt.Sprintf("Starting %s queue workers...", site),
 		}
-		
+
 		for i, cmd := range commands {
 			desc := fmt.Sprintf("Step %d: Setting up queue worker for %s", i+1, site)
 			if i < len(descriptions) {
@@ -820,24 +844,24 @@ EOF'`, supervisorConfigPath, site, site, site),
 			m.shared.CommandQueue.AddCommand(cmd, desc)
 		}
 	}
-	
+
 	// Add final status check
 	m.shared.CommandQueue.AddCommand("sudo supervisorctl status", "Checking queue worker status...")
-	
-	report = append(report, 
+
+	report = append(report,
 		fmt.Sprintf("Setting up queue workers for %d Laravel sites...", len(sites)),
 		"",
 		infoStyle.Render("Steps:"),
 		"1. Create Supervisor configuration files",
-		"2. Reload Supervisor configuration", 
+		"2. Reload Supervisor configuration",
 		"3. Start queue worker processes",
 		"4. Verify status",
 		"",
 		infoStyle.Render("Starting setup..."),
 	)
-	
+
 	m.SetReport(report)
-	
+
 	// Start processing the queue
 	if m.shared.CommandQueue.HasNext() {
 		command, description, ok := m.shared.CommandQueue.Next()
@@ -852,7 +876,7 @@ EOF'`, supervisorConfigPath, site, site, site),
 func (m *ProcessingModel) handleGitHubAuth() {
 	m.message = "Setting up GitHub Authentication..."
 	m.isComplete = false
-	
+
 	// Check if SSH key already exists
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -863,14 +887,14 @@ func (m *ProcessingModel) handleGitHubAuth() {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	pubKeyPath := fmt.Sprintf("%s/.ssh/id_ed25519.pub", homeDir)
 	if _, err := os.Stat(pubKeyPath); err == nil {
 		// SSH key exists, show it
 		m.showExistingSSHKey(pubKeyPath)
 		return
 	}
-	
+
 	// SSH key doesn't exist, generate one
 	m.generateDefaultSSHKey(homeDir)
 }
@@ -886,7 +910,7 @@ func (m *ProcessingModel) showExistingSSHKey(pubKeyPath string) {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	report := []string{
 		titleStyle.Render("🔑 GitHub SSH Key Found"),
 		"",
@@ -908,20 +932,20 @@ func (m *ProcessingModel) showExistingSSHKey(pubKeyPath string) {
 		"",
 		infoStyle.Render("💡 Want to test the connection automatically? Choose 'GitHub Authentication' again"),
 	}
-	
+
 	// Test the connection automatically
 	testCommands := []string{"timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes -T git@github.com"}
 	testDescriptions := []string{"Testing GitHub SSH connection..."}
-	
+
 	// Initialize command queue
 	if m.shared.CommandQueue == nil {
 		m.shared.CommandQueue = NewCommandQueue()
 	}
-	
+
 	// Reset and populate command queue
 	m.shared.CommandQueue.Reset()
 	m.shared.CommandQueue.ServiceName = "GitHub SSH Test"
-	
+
 	for i, cmd := range testCommands {
 		desc := "Testing connection..."
 		if i < len(testDescriptions) {
@@ -929,14 +953,14 @@ func (m *ProcessingModel) showExistingSSHKey(pubKeyPath string) {
 		}
 		m.shared.CommandQueue.AddCommand(cmd, desc)
 	}
-	
-	report = append(report, 
+
+	report = append(report,
 		"",
 		infoStyle.Render("Testing SSH connection..."),
 	)
-	
+
 	m.SetReport(report)
-	
+
 	// Start processing the queue
 	if m.shared.CommandQueue.HasNext() {
 		command, description, ok := m.shared.CommandQueue.Next()
@@ -954,40 +978,40 @@ func (m *ProcessingModel) generateDefaultSSHKey(homeDir string) {
 	if gitEmail, err := m.executeCommandSync("git", "config", "--global", "user.email"); err == nil && strings.TrimSpace(gitEmail) != "" {
 		defaultEmail = strings.TrimSpace(gitEmail)
 	}
-	
+
 	sshDir := fmt.Sprintf("%s/.ssh", homeDir)
-	
+
 	var commands []string
 	var descriptions []string
-	
+
 	// Create .ssh directory if it doesn't exist
 	commands = append(commands, fmt.Sprintf("mkdir -p %s", sshDir))
 	descriptions = append(descriptions, "Creating SSH directory...")
-	
+
 	// Remove existing key files first to avoid prompts
 	commands = append(commands, fmt.Sprintf("rm -f %s/id_ed25519 %s/id_ed25519.pub", sshDir, sshDir))
 	descriptions = append(descriptions, "Removing existing SSH keys...")
-	
+
 	// Generate SSH key without passphrase for automation
 	keygenCmd := fmt.Sprintf("ssh-keygen -t ed25519 -C \"%s\" -f %s/id_ed25519 -N \"\"", defaultEmail, sshDir)
 	commands = append(commands, keygenCmd)
 	descriptions = append(descriptions, "Generating SSH key...")
-	
+
 	// Set proper permissions
 	commands = append(commands, fmt.Sprintf("chmod 600 %s/id_ed25519", sshDir))
 	descriptions = append(descriptions, "Setting private key permissions...")
 	commands = append(commands, fmt.Sprintf("chmod 644 %s/id_ed25519.pub", sshDir))
 	descriptions = append(descriptions, "Setting public key permissions...")
-	
+
 	// Initialize command queue
 	if m.shared.CommandQueue == nil {
 		m.shared.CommandQueue = NewCommandQueue()
 	}
-	
+
 	// Reset and populate command queue
 	m.shared.CommandQueue.Reset()
 	m.shared.CommandQueue.ServiceName = "GitHub SSH Key Generation"
-	
+
 	for i, cmd := range commands {
 		desc := fmt.Sprintf("Step %d: Setting up SSH key", i+1)
 		if i < len(descriptions) {
@@ -995,7 +1019,7 @@ func (m *ProcessingModel) generateDefaultSSHKey(homeDir string) {
 		}
 		m.shared.CommandQueue.AddCommand(cmd, desc)
 	}
-	
+
 	report := []string{
 		titleStyle.Render("🔐 GitHub Authentication Setup"),
 		"",
@@ -1010,9 +1034,9 @@ func (m *ProcessingModel) generateDefaultSSHKey(homeDir string) {
 		"",
 		infoStyle.Render("Starting SSH key generation..."),
 	}
-	
+
 	m.SetReport(report)
-	
+
 	// Start processing the queue
 	if m.shared.CommandQueue.HasNext() {
 		command, description, ok := m.shared.CommandQueue.Next()
@@ -1034,7 +1058,7 @@ func (m *ProcessingModel) executeCommandSync(command string, args ...string) (st
 func (m *ProcessingModel) handleServiceStatus(serviceName string) {
 	m.message = fmt.Sprintf("Getting detailed status for %s...", serviceName)
 	m.isComplete = false
-	
+
 	commands, _ := actions.GetServiceStatus(serviceName)
 	if len(commands) == 0 {
 		m.SetReport([]string{
@@ -1043,12 +1067,12 @@ func (m *ProcessingModel) handleServiceStatus(serviceName string) {
 		m.SetComplete(true)
 		return
 	}
-	
+
 	report := []string{
 		titleStyle.Render(fmt.Sprintf("🔧 Service Status: %s", serviceName)),
 		"",
 	}
-	
+
 	// Execute the status command
 	if output, err := m.executeCommandSync("systemctl", "status", serviceName, "--no-pager", "--lines=15"); err == nil {
 		lines := strings.Split(output, "\n")
@@ -1060,7 +1084,7 @@ func (m *ProcessingModel) handleServiceStatus(serviceName string) {
 	} else {
 		report = append(report, errorStyle.Render(fmt.Sprintf("❌ Error getting status: %v", err)))
 	}
-	
+
 	m.SetReport(report)
 	m.SetComplete(true)
 }
@@ -1069,12 +1093,12 @@ func (m *ProcessingModel) handleServiceStatus(serviceName string) {
 func (m *ProcessingModel) handleServiceControl(serviceName, serviceAction string) {
 	m.message = fmt.Sprintf("Performing %s on %s...", serviceAction, serviceName)
 	m.isComplete = false
-	
+
 	config := actions.ServiceActionConfig{
 		ServiceName: serviceName,
 		Action:      serviceAction,
 	}
-	
+
 	commands, descriptions, err := actions.ControlService(config)
 	if err != nil {
 		m.SetReport([]string{
@@ -1083,31 +1107,31 @@ func (m *ProcessingModel) handleServiceControl(serviceName, serviceAction string
 		m.SetComplete(true)
 		return
 	}
-	
+
 	report := []string{
 		titleStyle.Render(fmt.Sprintf("🔧 Service Control: %s %s", serviceAction, serviceName)),
 		"",
 	}
-	
+
 	// Execute each command
 	for i, command := range commands {
 		if i < len(descriptions) {
 			report = append(report, infoStyle.Render(descriptions[i]))
 		}
-		
+
 		// Parse command into parts
 		parts := strings.Fields(command)
 		if len(parts) == 0 {
 			continue
 		}
-		
+
 		var cmd *exec.Cmd
 		if len(parts) == 1 {
 			cmd = exec.Command(parts[0])
 		} else {
 			cmd = exec.Command(parts[0], parts[1:]...)
 		}
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			report = append(report, errorStyle.Render(fmt.Sprintf("❌ Command failed: %v", err)))
@@ -1122,7 +1146,168 @@ func (m *ProcessingModel) handleServiceControl(serviceName, serviceAction string
 		}
 		report = append(report, "")
 	}
-	
+
 	m.SetReport(report)
 	m.SetComplete(true)
+}
+
+// handleSecurityAssessment runs a security assessment
+func (m *ProcessingModel) handleSecurityAssessment() {
+	m.message = "Running security assessment..."
+	m.isComplete = false
+
+	// Initialize command queue
+	if m.shared.CommandQueue == nil {
+		m.shared.CommandQueue = NewCommandQueue()
+	}
+
+	// Get security assessment commands
+	commands, descriptions := actions.SecurityAssessment()
+
+	// Reset and populate command queue
+	m.shared.CommandQueue.Reset()
+	m.shared.CommandQueue.ServiceName = "Security Assessment"
+
+	// Add commands to queue
+	for i, cmd := range commands {
+		desc := fmt.Sprintf("Security check %d/%d", i+1, len(commands))
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		m.shared.CommandQueue.AddCommand(cmd, desc)
+	}
+
+	report := []string{
+		titleStyle.Render("🔍 Security Assessment"),
+		"",
+		infoStyle.Render("Analyzing current security configuration..."),
+		"",
+		helpStyle.Render("Assessment includes:"),
+		"• SSH configuration analysis",
+		"• Firewall status check",
+		"• Intrusion detection status",
+		"• User account analysis",
+		"• Network port scanning",
+		"• Automatic updates status",
+		"",
+		infoStyle.Render("Starting security assessment..."),
+	}
+
+	m.SetReport(report)
+
+	// Start processing the queue
+	if m.shared.CommandQueue.HasNext() {
+		command, description, ok := m.shared.CommandQueue.Next()
+		if ok {
+			m.message = description
+			go m.executeCommand(command, "Security Assessment")
+		}
+	}
+}
+
+// handleSecurityStatus displays current security status
+func (m *ProcessingModel) handleSecurityStatus() {
+	m.message = "Checking security status..."
+	m.isComplete = false
+
+	// Initialize command queue
+	if m.shared.CommandQueue == nil {
+		m.shared.CommandQueue = NewCommandQueue()
+	}
+
+	// Get security status commands
+	commands, descriptions := actions.GetSecurityStatus()
+
+	// Reset and populate command queue
+	m.shared.CommandQueue.Reset()
+	m.shared.CommandQueue.ServiceName = "Security Status"
+
+	// Add commands to queue
+	for i, cmd := range commands {
+		desc := fmt.Sprintf("Status check %d/%d", i+1, len(commands))
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		m.shared.CommandQueue.AddCommand(cmd, desc)
+	}
+
+	report := []string{
+		titleStyle.Render("📊 Security Status Dashboard"),
+		"",
+		infoStyle.Render("Checking current security configuration..."),
+		"",
+		helpStyle.Render("Status checks:"),
+		"• SSH security configuration",
+		"• Firewall rules and status",
+		"• Fail2ban jails and activity",
+		"• Automatic updates status",
+		"• Recent security events",
+		"",
+		infoStyle.Render("Gathering security status..."),
+	}
+
+	m.SetReport(report)
+
+	// Start processing the queue
+	if m.shared.CommandQueue.HasNext() {
+		command, description, ok := m.shared.CommandQueue.Next()
+		if ok {
+			m.message = description
+			go m.executeCommand(command, "Security Status")
+		}
+	}
+}
+
+// handleSecurityReport generates comprehensive security report
+func (m *ProcessingModel) handleSecurityReport() {
+	m.message = "Generating security report..."
+	m.isComplete = false
+
+	// Initialize command queue
+	if m.shared.CommandQueue == nil {
+		m.shared.CommandQueue = NewCommandQueue()
+	}
+
+	// Get security report commands
+	commands, descriptions := actions.GenerateSecurityReport()
+
+	// Reset and populate command queue
+	m.shared.CommandQueue.Reset()
+	m.shared.CommandQueue.ServiceName = "Security Report"
+
+	// Add commands to queue
+	for i, cmd := range commands {
+		desc := fmt.Sprintf("Report generation %d/%d", i+1, len(commands))
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		m.shared.CommandQueue.AddCommand(cmd, desc)
+	}
+
+	report := []string{
+		titleStyle.Render("📋 Comprehensive Security Report"),
+		"",
+		infoStyle.Render("Generating detailed security analysis..."),
+		"",
+		helpStyle.Render("Report includes:"),
+		"• System information overview",
+		"• Security score calculation (0-10)",
+		"• Detailed security assessment",
+		"• Recommendations for improvement",
+		"• Current protection status",
+		"• Risk assessment summary",
+		"",
+		infoStyle.Render("Creating security report..."),
+	}
+
+	m.SetReport(report)
+
+	// Start processing the queue
+	if m.shared.CommandQueue.HasNext() {
+		command, description, ok := m.shared.CommandQueue.Next()
+		if ok {
+			m.message = description
+			go m.executeCommand(command, "Security Report")
+		}
+	}
 }

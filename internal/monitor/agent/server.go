@@ -112,7 +112,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	health := map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": time.Now(),
-		"version":   "1.0.0", // TODO: Get from build info
+		"version":   getVersion(),
 		"uptime":    s.agent.GetUptime(),
 		"config": map[string]interface{}{
 			"listen_addr":      s.config.Agent.ListenAddr,
@@ -782,4 +782,11 @@ func (s *Server) writeJSONResponse(w http.ResponseWriter, data interface{}) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+// getVersion returns the application version
+func getVersion() string {
+	// This could be injected at build time using ldflags
+	// For now, return a static version
+	return "1.0.0"
 }

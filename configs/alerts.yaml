@@ -12,7 +12,7 @@ email:
   from_email: "delivered@resend.dev"
   from_name: "Crucible Server Monitor"
   default_to:
-    - "admin@altonline.no"
+    - "test@example.com"
 
   # Custom email templates (optional)
   subject_template: "🚨 [{{.Severity}}] {{.Name}}"
@@ -45,7 +45,7 @@ rules:
       cpu_threshold: 80.0 # Alert when CPU usage > 80%
       duration: 2m # Must be sustained for 2 minutes
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 10m # Don't spam - wait 10 min between notifications
     max_notifications: 5 # Max 5 notifications per incident
 
@@ -58,7 +58,7 @@ rules:
       cpu_threshold: 95.0 # Alert when CPU usage > 95%
       duration: 1m # Must be sustained for 1 minute
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 10
 
@@ -71,7 +71,7 @@ rules:
       memory_threshold: 85.0 # Alert when memory usage > 85%
       duration: 5m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 15m
     max_notifications: 3
 
@@ -84,7 +84,7 @@ rules:
       memory_threshold: 95.0 # Alert when memory usage > 95%
       duration: 2m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 10
 
@@ -97,7 +97,7 @@ rules:
       disk_threshold: 80.0 # Alert when disk usage > 80%
       duration: 10m # Disk fills slower, longer duration
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 1h # Hourly notifications for disk space
     max_notifications: 24
 
@@ -110,7 +110,7 @@ rules:
       disk_threshold: 95.0 # Alert when disk usage > 95%
       duration: 5m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 15m
     max_notifications: 20
 
@@ -123,7 +123,7 @@ rules:
       load_threshold: 4.0 # Alert when 1-min load > 4.0
       duration: 5m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 10m
     max_notifications: 5
 
@@ -138,7 +138,7 @@ rules:
       service_status: "active" # Alert when NOT active
       duration: 1m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 10
 
@@ -152,7 +152,7 @@ rules:
       service_status: "active"
       duration: 1m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 10
 
@@ -166,7 +166,7 @@ rules:
       service_status: "active"
       duration: 1m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 10
 
@@ -182,7 +182,7 @@ rules:
       response_timeout: 10s
       duration: 2m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 5m
     max_notifications: 12
 
@@ -196,7 +196,7 @@ rules:
       response_timeout: 5s # Alert if response > 5 seconds
       duration: 5m
     notify_emails:
-      - "admin@altonline.no"
+      - "test@example.com"
     min_interval: 15m
     max_notifications: 4
 

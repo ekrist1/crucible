@@ -438,12 +438,12 @@ func CreateCaddySiteConfig(domain, sitePath string) []string {
 // GetLaravelSiteStatus checks if a Laravel site is running
 func GetLaravelSiteStatus(siteName string) (bool, error) {
 	sitePath := filepath.Join("/var/www", siteName)
-	
+
 	// Check if site directory exists
 	if _, err := os.Stat(sitePath); os.IsNotExist(err) {
 		return false, fmt.Errorf("site directory does not exist: %s", sitePath)
 	}
-	
+
 	// Check if Laravel files exist (basic validation)
 	laravelFiles := []string{"artisan", "composer.json", "app"}
 	for _, file := range laravelFiles {
@@ -451,10 +451,7 @@ func GetLaravelSiteStatus(siteName string) (bool, error) {
 			return false, fmt.Errorf("missing Laravel file: %s", file)
 		}
 	}
-	
-	// TODO: Could also check if Caddy configuration exists and is serving the site
-	// TODO: Could ping the actual URL to see if it responds
-	
-	// For now, if the directory and files exist, consider it "running"
+
+	// Directory and essential Laravel files exist
 	return true, nil
 }

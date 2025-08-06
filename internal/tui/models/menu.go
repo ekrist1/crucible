@@ -10,10 +10,10 @@ import (
 
 // MenuItem represents a single menu item
 type MenuItem struct {
-	Label       string
-	Action      MenuAction
-	ServiceKey  string // For service status tracking
-	Enabled     bool
+	Label      string
+	Action     MenuAction
+	ServiceKey string // For service status tracking
+	Enabled    bool
 }
 
 // MenuAction represents the action to take when a menu item is selected
@@ -29,12 +29,12 @@ const (
 // MenuModel handles menu navigation and display
 type MenuModel struct {
 	BaseModel
-	title         string
-	items         []MenuItem
-	cursor        int
-	level         MenuLevel
-	showIcons     bool
-	menuStack     []MenuLevel // Internal navigation stack for menu levels
+	title     string
+	items     []MenuItem
+	cursor    int
+	level     MenuLevel
+	showIcons bool
+	menuStack []MenuLevel // Internal navigation stack for menu levels
 }
 
 // Styles are now centralized in styles.go
@@ -196,7 +196,7 @@ func (m *MenuModel) handleMainMenuNavigation(item MenuItem) (tea.Model, tea.Cmd)
 		return m, tea.ClearScreen
 
 	case "Laravel Management":
-		// Store current menu level in navigation stack  
+		// Store current menu level in navigation stack
 		m.pushMenuLevel(MenuMain)
 		m.setupLaravelManagementMenu()
 		return m, tea.ClearScreen
@@ -228,7 +228,7 @@ func (m *MenuModel) handleCoreServicesNavigation(item MenuItem) (tea.Model, tea.
 	if item.ServiceKey == "nodejs" {
 		return m, m.NavigateTo(StateNodeJSInstall, nil)
 	}
-	
+
 	// For other services, navigate to processing state
 	return m, m.NavigateTo(StateProcessing, map[string]interface{}{
 		"action":  "install",
@@ -241,7 +241,7 @@ func (m *MenuModel) handleCoreServicesNavigation(item MenuItem) (tea.Model, tea.
 func (m *MenuModel) handleLaravelNavigation(item MenuItem) (tea.Model, tea.Cmd) {
 	switch item.Label {
 	case "Create a new Laravel Site":
-		return m, m.NavigateTo(StateLaravelCreate, nil)
+		return m, m.NavigateTo(StateLaravelCreateHybrid, nil)
 	case "Update Laravel Site":
 		return m, m.NavigateTo(StateProcessing, map[string]interface{}{
 			"action": "laravel-list",
@@ -261,11 +261,10 @@ func (m *MenuModel) handleLaravelNavigation(item MenuItem) (tea.Model, tea.Cmd) 
 // handleServerNavigation handles server management navigation
 func (m *MenuModel) handleServerNavigation(item MenuItem) (tea.Model, tea.Cmd) {
 	switch item.Label {
+	case "Linux Security (Phase 1)":
+		return m, m.NavigateTo(StateSecurity, nil)
 	case "Backup MySQL Database":
-		return m, m.NavigateTo(StateInput, map[string]interface{}{
-			"prompt": "Enter database name:",
-			"field":  "dbName",
-		})
+		return m, m.NavigateTo(StateMySQLBackup, nil)
 	case "System Status":
 		return m, m.NavigateTo(StateProcessing, map[string]interface{}{
 			"action": "system-status",
@@ -283,7 +282,7 @@ func (m *MenuModel) handleServerNavigation(item MenuItem) (tea.Model, tea.Cmd) {
 // handleSettingsNavigation handles settings navigation
 func (m *MenuModel) handleSettingsNavigation(item MenuItem) (tea.Model, tea.Cmd) {
 	// Handle settings-specific navigation
-	return m, m.NavigateTo(StateProcessing, map[string]interface{}{
+	return m, m.NavigateTo(StateSettings, map[string]interface{}{
 		"action": "settings",
 		"item":   item.Label,
 	})
@@ -350,6 +349,7 @@ func (m *MenuModel) setupServerManagementMenu() {
 	m.level = MenuServerManagement
 	m.cursor = 0
 	m.items = []MenuItem{
+		{Label: "Linux Security (Phase 1)", Action: ActionNavigate},
 		{Label: "Backup MySQL Database", Action: ActionNavigate},
 		{Label: "System Status", Action: ActionNavigate},
 		{Label: "View Installation Logs", Action: ActionNavigate},
@@ -379,19 +379,23 @@ func (m *MenuModel) refreshServiceStatus() {
 	if m.shared.ServiceStatus == nil {
 		m.shared.ServiceStatus = make(map[string]bool)
 	}
-	
+
 	// Check actual service/software installation status
 	serviceChecks := map[string]func() bool{
-		"php":        func() bool { return m.checkCommand("php", "--version") || m.checkSystemdService("php-fpm") },
-		"composer":   func() bool { return m.checkCommand("composer", "--version") },
-		"python":     func() bool { return m.checkCommand("python3", "--version") || m.checkCommand("python", "--version") },
-		"nodejs":     func() bool { return m.checkCommand("node", "--version") || m.checkCommand("nodejs", "--version") },
-		"mysql":      func() bool { return m.checkSystemdService("mysqld") || m.checkSystemdService("mysql") || m.checkCommand("mysql", "--version") },
-		"caddy":      func() bool { return m.checkSystemdService("caddy") || m.checkCommand("caddy", "version") },
-		"supervisor": func() bool { return m.checkSystemdService("supervisor") || m.checkSystemdService("supervisord") || m.checkCommand("supervisorctl", "version") },
-		"git":        func() bool { return m.checkCommand("git", "--version") },
+		"php":      func() bool { return m.checkCommand("php", "--version") || m.checkSystemdService("php-fpm") },
+		"composer": func() bool { return m.checkCommand("composer", "--version") },
+		"python":   func() bool { return m.checkCommand("python3", "--version") || m.checkCommand("python", "--version") },
+		"nodejs":   func() bool { return m.checkCommand("node", "--version") || m.checkCommand("nodejs", "--version") },
+		"mysql": func() bool {
+			return m.checkSystemdService("mysqld") || m.checkSystemdService("mysql") || m.checkCommand("mysql", "--version")
+		},
+		"caddy": func() bool { return m.checkSystemdService("caddy") || m.checkCommand("caddy", "version") },
+		"supervisor": func() bool {
+			return m.checkSystemdService("supervisor") || m.checkSystemdService("supervisord") || m.checkCommand("supervisorctl", "version")
+		},
+		"git": func() bool { return m.checkCommand("git", "--version") },
 	}
-	
+
 	for service, checkFunc := range serviceChecks {
 		m.shared.ServiceStatus[service] = checkFunc()
 	}
@@ -412,7 +416,7 @@ func (m *MenuModel) checkSystemdService(serviceName string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	// If the service is listed, it exists
 	return strings.Contains(string(output), serviceName+".service")
 }
@@ -450,11 +454,11 @@ func (m *MenuModel) popMenuLevel() {
 	if len(m.menuStack) == 0 {
 		return
 	}
-	
+
 	// Pop the last level from the stack
 	prevLevel := m.menuStack[len(m.menuStack)-1]
 	m.menuStack = m.menuStack[:len(m.menuStack)-1]
-	
+
 	// Set the previous menu level
 	m.SetLevel(prevLevel)
 }

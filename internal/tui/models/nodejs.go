@@ -1,8 +1,8 @@
 package models
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
 	"crucible/internal/services"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Node.js message types
@@ -40,7 +40,7 @@ func (f *NodeJSFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			return f, f.GoBack()
 		}
-	
+
 	case nodejsInstallCompleteMsg:
 		if msg.err != nil {
 			// Handle error case - could add error display here
@@ -76,12 +76,12 @@ func (f *NodeJSFormModel) setupForm() {
 		Description: "Configure Node.js installation options",
 		Fields: []FormField{
 			{
-				Name:        "installPM2",
-				Label:       "Install PM2 Process Manager?",
-				FieldType:   FieldTypeSelect,
-				Required:    true,
-				Value:       "Yes",
-				Options:     []string{"Yes", "No"},
+				Name:      "installPM2",
+				Label:     "Install PM2 Process Manager?",
+				FieldType: FieldTypeSelect,
+				Required:  true,
+				Value:     "Yes",
+				Options:   []string{"Yes", "No"},
 			},
 		},
 	}
@@ -99,13 +99,13 @@ func (f *NodeJSFormModel) handleSubmit(values map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		// Determine if PM2 should be installed
 		installPM2 := values["installPM2"] == "Yes"
-		
+
 		// Get the commands for Node.js installation
 		commands, descriptions, err := services.InstallNodeWithPM2(installPM2)
 		if err != nil {
 			return nodejsInstallCompleteMsg{err: err}
 		}
-		
+
 		// Queue the commands for execution
 		if f.shared.CommandQueue != nil {
 			f.shared.CommandQueue.Reset()
@@ -118,7 +118,7 @@ func (f *NodeJSFormModel) handleSubmit(values map[string]string) tea.Cmd {
 			}
 			f.shared.CommandQueue.ServiceName = "Node.js Installation"
 		}
-		
+
 		return nodejsInstallCompleteMsg{err: nil}
 	}
 }

@@ -102,14 +102,6 @@ func (am *AlertManager) initializeNotifiers() {
 	}
 
 	log.Printf("DEBUG: Total notifiers initialized: %d", len(am.notifiers))
-
-	// TODO: Add webhook notifiers when implemented
-	// for _, webhookConfig := range am.config.Webhooks {
-	// 	if webhookConfig.Enabled {
-	// 		webhookNotifier := notifiers.NewWebhookNotifier(&webhookConfig)
-	// 		am.notifiers = append(am.notifiers, webhookNotifier)
-	// 	}
-	// }
 }
 
 // AddRule adds a new alert rule

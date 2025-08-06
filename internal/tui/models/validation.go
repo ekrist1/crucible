@@ -71,3 +71,43 @@ func validateSiteName(name string) error {
 	}
 	return nil
 }
+
+// validateInstallationMethod validates the installation method
+func validateInstallationMethod(method string) error {
+	if method == "" {
+		return nil // Will default to "fresh"
+	}
+
+	method = strings.ToLower(method)
+	if method != "fresh" && method != "git" {
+		return errors.New("installation method must be 'fresh' or 'git'")
+	}
+
+	return nil
+}
+
+// validateBranch validates Git branch names
+func validateBranch(branch string) error {
+	if branch == "" {
+		return nil // Will default to "main"
+	}
+
+	// Basic branch name validation
+	if len(branch) > 100 {
+		return errors.New("branch name too long")
+	}
+
+	// Check for invalid characters
+	for _, char := range branch {
+		if unicode.IsSpace(char) || char == '~' || char == '^' || char == ':' {
+			return errors.New("branch name contains invalid characters")
+		}
+	}
+
+	// Can't start with . or end with . or end with .lock
+	if strings.HasPrefix(branch, ".") || strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, ".lock") {
+		return errors.New("invalid branch name format")
+	}
+
+	return nil
+}

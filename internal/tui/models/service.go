@@ -16,14 +16,13 @@ type servicesLoadedMsg struct {
 	err      error
 }
 
-
 // ServiceModel handles service management
 type ServiceModel struct {
 	BaseModel
-	serviceList     list.Model
-	services        []actions.ServiceInfo
-	message         string
-	loading         bool
+	serviceList list.Model
+	services    []actions.ServiceInfo
+	message     string
+	loading     bool
 }
 
 // ServiceItem wraps ServiceInfo for the list component
@@ -54,7 +53,7 @@ func NewServiceModel(shared *SharedData) *ServiceModel {
 	if height < 10 {
 		height = 10 // Minimum height for service list
 	}
-	
+
 	serviceList := list.New(items, list.NewDefaultDelegate(), width, height)
 	serviceList.Title = "System Services"
 	serviceList.SetShowStatusBar(false)
@@ -62,11 +61,11 @@ func NewServiceModel(shared *SharedData) *ServiceModel {
 	serviceList.SetShowHelp(false)
 
 	return &ServiceModel{
-		BaseModel:        NewBaseModel(shared),
-		serviceList:      serviceList,
-		services:         []actions.ServiceInfo{},
-		message:          "",
-		loading:          false,
+		BaseModel:   NewBaseModel(shared),
+		serviceList: serviceList,
+		services:    []actions.ServiceInfo{},
+		message:     "",
+		loading:     false,
 	}
 }
 
@@ -93,7 +92,6 @@ func (m *ServiceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = "Loading services..."
 			return m, m.loadServices()
 		}
-
 
 		// Handle service-specific actions
 		switch msg.String() {
@@ -134,7 +132,6 @@ func (m *ServiceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateServiceList()
 		}
 		return m, nil
-
 
 	case tea.WindowSizeMsg:
 		// Update shared terminal size
@@ -222,8 +219,8 @@ func (m *ServiceModel) showServiceStatus(service actions.ServiceInfo) (tea.Model
 func (m *ServiceModel) performServiceAction(service actions.ServiceInfo, action string) (tea.Model, tea.Cmd) {
 	// Navigate to processing state to execute the service action
 	return m, m.NavigateTo(StateProcessing, map[string]interface{}{
-		"action":      "service-control",
-		"service":     service.Name,
+		"action":        "service-control",
+		"service":       service.Name,
 		"serviceAction": action,
 	})
 }

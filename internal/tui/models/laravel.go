@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"crucible/internal/actions"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Laravel message types
@@ -82,7 +82,7 @@ func (m *LaravelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.GoBack()
 		case "c":
 			// Create new site
-			return m, m.NavigateTo(StateLaravelCreate, nil)
+			return m, m.NavigateTo(StateLaravelCreateHybrid, nil)
 		case "r":
 			// Refresh sites
 			m.loading = true
@@ -175,7 +175,7 @@ func (m *LaravelModel) View() string {
 				siteName = choiceStyle.Render(siteName)
 			}
 
-			s.WriteString(fmt.Sprintf("%s%s %s (Domain: %s, Path: %s)\n", 
+			s.WriteString(fmt.Sprintf("%s%s %s (Domain: %s, Path: %s)\n",
 				cursor, status, siteName, site.Domain, site.Path))
 		}
 		s.WriteString("\n")
@@ -205,7 +205,7 @@ func (m *LaravelModel) loadSites() tea.Cmd {
 		if err != nil {
 			return laravelSitesLoadedMsg{sites: nil, err: err}
 		}
-		
+
 		// Convert to LaravelSite structs
 		sites := make([]LaravelSite, len(siteNames))
 		for i, name := range siteNames {
@@ -218,7 +218,7 @@ func (m *LaravelModel) loadSites() tea.Cmd {
 				IsActive:   true,            // Assume active for now
 			}
 		}
-		
+
 		return laravelSitesLoadedMsg{sites: sites, err: nil}
 	}
 }
@@ -297,7 +297,7 @@ func (f *LaravelFormModel) setupForm() {
 		},
 	}
 
-	// Step 2: Installation Method  
+	// Step 2: Installation Method
 	step2 := FormStep{
 		Title:       "Installation Method",
 		Description: "Choose how to create your Laravel application",
@@ -356,7 +356,7 @@ func (f *LaravelFormModel) handleSubmit(values map[string]string) tea.Cmd {
 			SiteName: values["siteName"],
 			Domain:   values["domain"],
 		}
-		
+
 		// Check installation method
 		installMethod := values["installMethod"]
 		if installMethod == "Clone from Git" {
@@ -371,10 +371,10 @@ func (f *LaravelFormModel) handleSubmit(values map[string]string) tea.Cmd {
 			config.GitRepo = ""
 			config.Branch = ""
 		}
-		
+
 		// Get the commands for Laravel site creation
 		commands, descriptions := actions.CreateLaravelSite(config)
-		
+
 		// Queue the commands for execution
 		if f.shared.CommandQueue != nil {
 			f.shared.CommandQueue.Reset()
@@ -387,7 +387,7 @@ func (f *LaravelFormModel) handleSubmit(values map[string]string) tea.Cmd {
 			}
 			f.shared.CommandQueue.ServiceName = "Laravel Site: " + config.SiteName
 		}
-		
+
 		return laravelSiteCreatedMsg{name: config.SiteName, err: nil}
 	}
 }
@@ -400,7 +400,7 @@ func (f *LaravelFormModel) handleCancel() tea.Cmd {
 // validateConditionalGitURL validates Git URL conditionally based on installation method
 func (f *LaravelFormModel) validateConditionalGitURL(url string) error {
 	installMethod := f.form.GetValue("installMethod")
-	
+
 	// If "Clone from Git" is selected, Git repository is required
 	if installMethod == "Clone from Git" {
 		if strings.TrimSpace(url) == "" {
@@ -408,13 +408,13 @@ func (f *LaravelFormModel) validateConditionalGitURL(url string) error {
 		}
 		return validateGitURL(url)
 	}
-	
+
 	// If "Fresh Laravel" is selected, Git repository is optional
 	if strings.TrimSpace(url) != "" {
 		// If provided, it must be valid
 		return validateGitURL(url)
 	}
-	
+
 	return nil
 }
 
@@ -434,4 +434,3 @@ func validateLaravelSiteName(name string) error {
 	}
 	return nil
 }
-

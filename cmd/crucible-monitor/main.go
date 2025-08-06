@@ -15,20 +15,28 @@ import (
 var (
 	configPath = flag.String("config", "", "Path to configuration file")
 	debug      = flag.Bool("debug", false, "Enable debug logging")
-	version    = flag.Bool("version", false, "Show version information")
+	versionFlag = flag.Bool("version", false, "Show version information")
+)
+
+// Build information - can be set via ldflags
+var (
+	version   = "dev"
+	buildTime = "unknown"
+	gitCommit = "unknown"
 )
 
 const (
-	AppName    = "crucible-monitor"
-	AppVersion = "1.0.0"
+	AppName = "crucible-monitor"
 )
 
 func main() {
 	flag.Parse()
 
 	// Show version and exit if requested
-	if *version {
-		fmt.Printf("%s version %s\n", AppName, AppVersion)
+	if *versionFlag {
+		fmt.Printf("%s version %s\n", AppName, version)
+		fmt.Printf("Build time: %s\n", buildTime)
+		fmt.Printf("Git commit: %s\n", gitCommit)
 		os.Exit(0)
 	}
 
@@ -40,7 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("Starting Crucible Monitoring Agent", "version", AppVersion)
+	logger.Info("Starting Crucible Monitoring Agent", "version", version, "build_time", buildTime, "git_commit", gitCommit)
 
 	// Load configuration
 	config, err := monitor.LoadConfig(*configPath)

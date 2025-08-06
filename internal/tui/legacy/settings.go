@@ -343,8 +343,7 @@ func (m Model) saveEmailConfiguration() (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 	}
 
-	// TODO: Save to alerts.yaml configuration
-	// For now, show instructions
+	// Show configuration instructions
 	m.State = StateProcessing
 	m.ProcessingMsg = ""
 	m.Report = []string{

@@ -8,42 +8,142 @@ import (
 
 // MySQLBackupConfig contains configuration for MySQL backup
 type MySQLBackupConfig struct {
-	DBName     string
-	DBUser     string
-	DBPassword string
-	RemoteHost string
-	RemotePath string
+	DBName          string
+	DBUser          string
+	DBPassword      string
+	DestinationType string // "local", "scp", "s3"
+	LocalPath       string
+	RemoteHost      string
+	RemotePath      string
+	SSHKeyPath      string
+	RemoteUser      string
+	S3Bucket        string
+	S3Region        string
+	S3AccessKey     string
+	S3SecretKey     string
+	RetentionDays   int
+	CompressBackup  bool
 }
 
 // BackupMySQL returns the commands and descriptions for backing up MySQL database
 func BackupMySQL(config MySQLBackupConfig) ([]string, []string) {
-	// Create timestamp for backup filename
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	backupFileName := fmt.Sprintf("%s_backup_%s.sql", config.DBName, timestamp)
-	localBackupPath := filepath.Join("/tmp", backupFileName)
-	compressedPath := localBackupPath + ".gz"
 
 	var commands []string
 	var descriptions []string
 
-	// 1. Create MySQL dump
-	dumpCmd := fmt.Sprintf("mysqldump -u %s -p%s --single-transaction --routines --triggers %s > %s",
-		config.DBUser, config.DBPassword, config.DBName, localBackupPath)
+	// Set default values
+	if config.DestinationType == "" {
+		config.DestinationType = "local"
+	}
+	if config.LocalPath == "" {
+		config.LocalPath = "/var/backups/mysql"
+	}
+	if config.CompressBackup == false {
+		config.CompressBackup = true
+	}
+
+	// Determine backup paths
+	var workingPath, finalPath string
+
+	switch config.DestinationType {
+	case "local":
+		// Create backup directory if it doesn't exist
+		commands = append(commands, fmt.Sprintf("sudo mkdir -p %s", config.LocalPath))
+		descriptions = append(descriptions, "Creating backup directory...")
+
+		workingPath = filepath.Join(config.LocalPath, backupFileName)
+		if config.CompressBackup {
+			finalPath = workingPath + ".gz"
+		} else {
+			finalPath = workingPath
+		}
+
+	case "scp", "s3":
+		// Use temporary directory for remote transfers
+		workingPath = filepath.Join("/tmp", backupFileName)
+		if config.CompressBackup {
+			finalPath = workingPath + ".gz"
+		} else {
+			finalPath = workingPath
+		}
+	}
+
+	// 1. Create MySQL dump with secure credential handling
+	var dumpCmd string
+	if config.DBPassword != "" {
+		// Use password (less secure but more common)
+		dumpCmd = fmt.Sprintf("mysqldump -u %s -p'%s' --single-transaction --routines --triggers --opt %s > %s",
+			config.DBUser, config.DBPassword, config.DBName, workingPath)
+	} else {
+		// Use socket authentication or .my.cnf (more secure)
+		dumpCmd = fmt.Sprintf("mysqldump -u %s --single-transaction --routines --triggers --opt %s > %s",
+			config.DBUser, config.DBName, workingPath)
+	}
 	commands = append(commands, dumpCmd)
-	descriptions = append(descriptions, fmt.Sprintf("Creating MySQL dump: %s", config.DBName))
+	descriptions = append(descriptions, fmt.Sprintf("Creating MySQL dump of database: %s", config.DBName))
 
-	// 2. Compress the backup
-	commands = append(commands, fmt.Sprintf("gzip %s", localBackupPath))
-	descriptions = append(descriptions, "Compressing backup file...")
+	// 2. Compress backup if requested
+	if config.CompressBackup {
+		commands = append(commands, fmt.Sprintf("gzip %s", workingPath))
+		descriptions = append(descriptions, "Compressing backup file...")
+	}
 
-	// 3. Transfer to remote host via SCP
-	scpCmd := fmt.Sprintf("scp %s %s:%s", compressedPath, config.RemoteHost, config.RemotePath)
-	commands = append(commands, scpCmd)
-	descriptions = append(descriptions, fmt.Sprintf("Transferring backup to %s:%s", config.RemoteHost, config.RemotePath))
+	// 3. Handle destination-specific actions
+	switch config.DestinationType {
+	case "local":
+		// Set proper permissions for local backups
+		commands = append(commands, fmt.Sprintf("sudo chown mysql:mysql %s", finalPath))
+		commands = append(commands, fmt.Sprintf("sudo chmod 600 %s", finalPath))
+		descriptions = append(descriptions, "Setting secure backup file permissions...")
 
-	// 4. Clean up local backup
-	commands = append(commands, fmt.Sprintf("rm -f %s", compressedPath))
-	descriptions = append(descriptions, "Cleaning up local backup file...")
+		// Optional: Clean up old backups based on retention policy
+		if config.RetentionDays > 0 {
+			cleanupCmd := fmt.Sprintf("find %s -name '%s_backup_*.sql*' -type f -mtime +%d -delete",
+				config.LocalPath, config.DBName, config.RetentionDays)
+			commands = append(commands, cleanupCmd)
+			descriptions = append(descriptions, fmt.Sprintf("Cleaning up backups older than %d days...", config.RetentionDays))
+		}
+
+	case "scp":
+		// Transfer via SCP
+		var scpCmd string
+		if config.SSHKeyPath != "" {
+			// Use SSH key authentication (more secure)
+			scpCmd = fmt.Sprintf("scp -i %s %s %s@%s:%s",
+				config.SSHKeyPath, finalPath, config.RemoteUser, config.RemoteHost, config.RemotePath)
+		} else {
+			// Use password authentication (less secure)
+			scpCmd = fmt.Sprintf("scp %s %s@%s:%s",
+				finalPath, config.RemoteUser, config.RemoteHost, config.RemotePath)
+		}
+		commands = append(commands, scpCmd)
+		descriptions = append(descriptions, fmt.Sprintf("Transferring backup to %s@%s:%s", config.RemoteUser, config.RemoteHost, config.RemotePath))
+
+		// Clean up temporary backup
+		commands = append(commands, fmt.Sprintf("rm -f %s", finalPath))
+		descriptions = append(descriptions, "Cleaning up temporary backup file...")
+
+	case "s3":
+		// AWS S3 upload (requires aws-cli)
+		s3Path := fmt.Sprintf("s3://%s/%s", config.S3Bucket, filepath.Base(finalPath))
+		var awsCmd string
+		if config.S3AccessKey != "" && config.S3SecretKey != "" {
+			// Use provided credentials
+			awsCmd = fmt.Sprintf("AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s aws s3 cp %s %s --region %s",
+				config.S3AccessKey, config.S3SecretKey, finalPath, s3Path, config.S3Region)
+		} else {
+			// Use default AWS credentials
+			awsCmd = fmt.Sprintf("aws s3 cp %s %s --region %s", finalPath, s3Path, config.S3Region)
+		}
+		commands = append(commands, awsCmd)
+		descriptions = append(descriptions, fmt.Sprintf("Uploading backup to S3: %s", s3Path))
+
+		// Clean up temporary backup
+		commands = append(commands, fmt.Sprintf("rm -f %s", finalPath))
+		descriptions = append(descriptions, "Cleaning up temporary backup file...")
+	}
 
 	return commands, descriptions
 }

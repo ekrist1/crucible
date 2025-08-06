@@ -10,17 +10,23 @@ import (
 type AppState = models.AppState
 
 const (
-	StateMenu            = models.StateMenu
-	StateSubmenu         = models.StateSubmenu
-	StateInput           = models.StateInput
-	StateProcessing      = models.StateProcessing
-	StateLogViewer       = models.StateLogViewer
-	StateServiceList     = models.StateServiceList
-	StateServiceActions  = models.StateServiceActions
-	StateNextJSMenu      = models.StateNextJSMenu
-	StateNextJSCreate    = models.StateNextJSCreate
-	StateLaravelCreate   = models.StateLaravelCreate
-	StateMonitoring      = models.StateMonitoring
+	StateMenu                   = models.StateMenu
+	StateSubmenu                = models.StateSubmenu
+	StateInput                  = models.StateInput
+	StateProcessing             = models.StateProcessing
+	StateLogViewer              = models.StateLogViewer
+	StateServiceList            = models.StateServiceList
+	StateServiceActions         = models.StateServiceActions
+	StateNextJSMenu             = models.StateNextJSMenu
+	StateNextJSCreate           = models.StateNextJSCreate
+	StateNextJSCreateTextInput  = models.StateNextJSCreateTextInput
+	StateNextJSCreateHybrid     = models.StateNextJSCreateHybrid
+	StateLaravel                = models.StateLaravel
+	StateLaravelCreate          = models.StateLaravelCreate
+	StateLaravelCreateTextInput = models.StateLaravelCreateTextInput
+	StateLaravelCreateHybrid    = models.StateLaravelCreateHybrid
+	StateMonitoring             = models.StateMonitoring
+	StateSettings               = models.StateSettings
 )
 
 // NewModel creates a new model using the composed architecture

@@ -6,23 +6,23 @@ import (
 
 // SharedData contains data that needs to be accessible across different models
 type SharedData struct {
-	ServiceStatus    map[string]bool
-	ProcessingMsg    string
-	CommandQueue     *CommandQueue
-	NavigationStack  []AppState
-	Logger           *logging.Logger
-	TerminalWidth    int
-	TerminalHeight   int
+	ServiceStatus   map[string]bool
+	ProcessingMsg   string
+	CommandQueue    *CommandQueue
+	NavigationStack []AppState
+	Logger          *logging.Logger
+	TerminalWidth   int
+	TerminalHeight  int
 }
 
 // CommandQueue manages sequential command execution
 type CommandQueue struct {
-	Commands        []string
-	Descriptions    []string
-	Index          int
-	ServiceName    string
-	Results        []string
-	IsProcessing   bool
+	Commands     []string
+	Descriptions []string
+	Index        int
+	ServiceName  string
+	Results      []string
+	IsProcessing bool
 }
 
 // AppState represents the different states of the application
@@ -38,9 +38,19 @@ const (
 	StateServiceActions
 	StateNextJSMenu
 	StateNextJSCreate
+	StateNextJSCreateTextInput
+	StateNextJSCreateHybrid
+	StateLaravel
 	StateLaravelCreate
+	StateLaravelCreateTextInput
+	StateLaravelCreateHybrid
 	StateNodeJSInstall
 	StateMonitoring
+	StateSettings
+	StateMySQLBackup
+	StateSecurity
+	StateSecurityHardening
+	StateSecurityCustom
 )
 
 // MenuLevel represents different menu levels
@@ -81,8 +91,8 @@ func NewSharedData(logger *logging.Logger) *SharedData {
 		CommandQueue:    &CommandQueue{},
 		NavigationStack: []AppState{},
 		Logger:          logger,
-		TerminalWidth:   80,  // Default terminal width
-		TerminalHeight:  24,  // Default terminal height
+		TerminalWidth:   80, // Default terminal width
+		TerminalHeight:  24, // Default terminal height
 	}
 }
 

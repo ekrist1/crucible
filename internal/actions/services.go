@@ -87,7 +87,7 @@ func GetCommonServices() []string {
 	return []string{
 		// Web servers
 		"apache2", "httpd", "nginx", "caddy",
-		// Databases  
+		// Databases
 		"mysql", "mysqld", "mariadb", "postgresql", "redis", "redis-server",
 		// PHP
 		"php8.4-fpm", "php8.3-fpm", "php-fpm", "php7.4-fpm",
@@ -130,7 +130,7 @@ func ParseServiceList(output string) []ServiceInfo {
 func GetSystemServices() ([]ServiceInfo, error) {
 	commonServices := GetCommonServices()
 	var services []ServiceInfo
-	
+
 	for _, name := range commonServices {
 		// Check if service exists and get its status
 		service, err := getServiceInfo(name)
@@ -138,7 +138,7 @@ func GetSystemServices() ([]ServiceInfo, error) {
 			services = append(services, service)
 		}
 	}
-	
+
 	return services, nil
 }
 
@@ -150,10 +150,10 @@ func getServiceInfo(serviceName string) (ServiceInfo, error) {
 	if err != nil {
 		return ServiceInfo{}, err
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	service := ServiceInfo{Name: serviceName}
-	
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "ActiveState=") {
 			service.Active = strings.TrimPrefix(line, "ActiveState=")
@@ -163,11 +163,11 @@ func getServiceInfo(serviceName string) (ServiceInfo, error) {
 			service.Status = strings.TrimPrefix(line, "LoadState=")
 		}
 	}
-	
+
 	// Only return services that are loaded (installed)
 	if service.Status != "loaded" {
 		return ServiceInfo{}, fmt.Errorf("service not loaded: %s", serviceName)
 	}
-	
+
 	return service, nil
 }

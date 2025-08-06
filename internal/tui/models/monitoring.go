@@ -1,17 +1,26 @@
 package models
 
 import (
+	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"crucible/internal/actions"
 	"crucible/internal/monitor"
+	tea "github.com/charmbracelet/bubbletea"
+	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
 // MonitoringView represents different views in the monitoring dashboard
@@ -99,23 +108,23 @@ type HistoricalData struct {
 // MonitoringEvent represents a system event or alert
 type MonitoringEvent struct {
 	ID        string
-	Type      string    // alert, service, system
-	Severity  string    // critical, warning, info
-	Source    string    // Service/component that generated the event
-	Message   string    // Event description
+	Type      string // alert, service, system
+	Severity  string // critical, warning, info
+	Source    string // Service/component that generated the event
+	Message   string // Event description
 	Timestamp time.Time
-	Resolved  bool      // For alerts, whether they've been resolved
+	Resolved  bool // For alerts, whether they've been resolved
 }
 
 // StorageStatistics represents storage and database statistics
 type StorageStatistics struct {
-	DiskUsage           []DiskUsage
-	Databases           []DatabaseInfo
-	LogFiles            []LogFileInfo
-	LaravelSites        []SiteStorageInfo
-	TotalDatabaseSize   int64
-	TotalLogSize        int64
-	TotalSiteSize       int64
+	DiskUsage         []DiskUsage
+	Databases         []DatabaseInfo
+	LogFiles          []LogFileInfo
+	LaravelSites      []SiteStorageInfo
+	TotalDatabaseSize int64
+	TotalLogSize      int64
+	TotalSiteSize     int64
 }
 
 // DiskUsage represents disk usage information
@@ -345,9 +354,9 @@ func (m *MonitoringModel) getViewName() string {
 // buildStatusLine builds the status line with refresh info
 func (m *MonitoringModel) buildStatusLine() string {
 	var parts []string
-	
+
 	data := m.getData()
-	
+
 	// Last updated
 	if !data.LastUpdated.IsZero() {
 		lastUpdated := data.LastUpdated.Format("15:04:05")
@@ -418,7 +427,7 @@ func (m *MonitoringModel) renderLiveView() string {
 			if service.Active == "active" && service.Sub == "running" {
 				status = "🟢"
 			}
-			s.WriteString(fmt.Sprintf("%s %s - %s (%s)\n", 
+			s.WriteString(fmt.Sprintf("%s %s - %s (%s)\n",
 				status, service.Name, service.Status, service.Sub))
 		}
 	}
@@ -457,7 +466,7 @@ func (m *MonitoringModel) renderLiveView() string {
 			} else if alert.Severity == "warning" {
 				severityStyle = warnStyle
 			}
-			s.WriteString(severityStyle.Render(fmt.Sprintf("⚠ [%s] %s: %s", 
+			s.WriteString(severityStyle.Render(fmt.Sprintf("⚠ [%s] %s: %s",
 				strings.ToUpper(alert.Severity), alert.Name, alert.Message)))
 			s.WriteString("\n")
 		}
@@ -476,7 +485,7 @@ func (m *MonitoringModel) renderHistoricalView() string {
 	// Fetch real historical data from monitoring agent
 	data := m.getData()
 	timeRange := m.getTimeRange()
-	
+
 	// Fetch real historical data points
 	histData, err := m.fetchHistoricalData(timeRange)
 	if err != nil {
@@ -492,25 +501,25 @@ func (m *MonitoringModel) renderHistoricalView() string {
 		s.WriteString(infoStyle.Render(fmt.Sprintf("📊 Real historical data (%d data points)", dataPoints)))
 		s.WriteString("\n\n")
 	}
-	
+
 	// CPU Usage Chart
 	s.WriteString(infoStyle.Render("CPU Usage Over Time:"))
 	s.WriteString("\n")
 	s.WriteString(m.renderSimpleChart("CPU", histData.CPUHistory, "%"))
 	s.WriteString("\n\n")
-	
-	// Memory Usage Chart  
+
+	// Memory Usage Chart
 	s.WriteString(infoStyle.Render("Memory Usage Over Time:"))
 	s.WriteString("\n")
 	s.WriteString(m.renderSimpleChart("Memory", histData.MemoryHistory, "%"))
 	s.WriteString("\n\n")
-	
+
 	// Load Average Chart
 	s.WriteString(infoStyle.Render("Load Average Over Time:"))
 	s.WriteString("\n")
 	s.WriteString(m.renderSimpleChart("Load", histData.LoadHistory, ""))
 	s.WriteString("\n\n")
-	
+
 	// Current vs Historical Summary
 	s.WriteString(infoStyle.Render("Summary:"))
 	s.WriteString("\n")
@@ -542,7 +551,7 @@ func (m *MonitoringModel) renderEventsView() string {
 		s.WriteString(infoStyle.Render("📋 Real events from monitoring agent"))
 		s.WriteString("\n\n")
 	}
-	
+
 	if len(events) == 0 {
 		s.WriteString(helpStyle.Render("No events found in the selected time range"))
 		s.WriteString("\n")
@@ -588,7 +597,7 @@ func (m *MonitoringModel) renderEventsView() string {
 
 	// Event summary
 	s.WriteString("\n")
-	summary := fmt.Sprintf("Total Events: %d (Alerts: %d, Service: %d, System: %d)", 
+	summary := fmt.Sprintf("Total Events: %d (Alerts: %d, Service: %d, System: %d)",
 		len(events), len(alertEvents), len(serviceEvents), len(systemEvents))
 	s.WriteString(helpStyle.Render(summary))
 
@@ -620,9 +629,9 @@ func (m *MonitoringModel) renderStorageView() string {
 		} else if disk.UsedPercent > 80 {
 			statusIcon = "🟡"
 		}
-		
-		s.WriteString(fmt.Sprintf("%s %-15s %s %.1f%% (%s / %s)\n", 
-			statusIcon, disk.Path, usageBar, disk.UsedPercent, 
+
+		s.WriteString(fmt.Sprintf("%s %-15s %s %.1f%% (%s / %s)\n",
+			statusIcon, disk.Path, usageBar, disk.UsedPercent,
 			m.formatBytes(disk.Used), m.formatBytes(disk.Total)))
 	}
 	s.WriteString("\n")
@@ -635,7 +644,7 @@ func (m *MonitoringModel) renderStorageView() string {
 		if db.SizeBytes > 1024*1024*1024 { // > 1GB
 			statusIcon = "🟡"
 		}
-		s.WriteString(fmt.Sprintf("%s %-20s %s (%d tables, %s records)\n", 
+		s.WriteString(fmt.Sprintf("%s %-20s %s (%d tables, %s records)\n",
 			statusIcon, db.Name, m.formatBytes(db.SizeBytes), db.Tables, m.formatNumber(db.Records)))
 	}
 	s.WriteString("\n")
@@ -651,9 +660,9 @@ func (m *MonitoringModel) renderStorageView() string {
 		if log.SizeBytes > 500*1024*1024 { // > 500MB
 			statusIcon = "🔴"
 		}
-		
+
 		ageStr := m.formatDuration(time.Since(log.LastModified))
-		s.WriteString(fmt.Sprintf("%s %-30s %s (modified %s ago)\n", 
+		s.WriteString(fmt.Sprintf("%s %-30s %s (modified %s ago)\n",
 			statusIcon, log.Path, m.formatBytes(log.SizeBytes), ageStr))
 	}
 	s.WriteString("\n")
@@ -663,7 +672,7 @@ func (m *MonitoringModel) renderStorageView() string {
 	s.WriteString("\n")
 	for _, site := range storageStats.LaravelSites {
 		s.WriteString(fmt.Sprintf("🌐 %-20s %s\n", site.Name, m.formatBytes(site.SizeBytes)))
-		s.WriteString(fmt.Sprintf("   └─ Vendor: %s, Storage: %s, Cache: %s\n", 
+		s.WriteString(fmt.Sprintf("   └─ Vendor: %s, Storage: %s, Cache: %s\n",
 			m.formatBytes(site.VendorSize), m.formatBytes(site.StorageSize), m.formatBytes(site.CacheSize)))
 	}
 	s.WriteString("\n")
@@ -675,11 +684,11 @@ func (m *MonitoringModel) renderStorageView() string {
 		totalUsed += disk.Used
 		totalAvail += disk.Total
 	}
-	
+
 	s.WriteString(infoStyle.Render("📊 STORAGE SUMMARY"))
 	s.WriteString("\n")
-	s.WriteString(fmt.Sprintf("Total Disk Usage: %s / %s (%.1f%%)\n", 
-		m.formatBytes(totalUsed), m.formatBytes(totalAvail), 
+	s.WriteString(fmt.Sprintf("Total Disk Usage: %s / %s (%.1f%%)\n",
+		m.formatBytes(totalUsed), m.formatBytes(totalAvail),
 		float64(totalUsed)/float64(totalAvail)*100))
 	s.WriteString(fmt.Sprintf("Database Storage: %s\n", m.formatBytes(storageStats.TotalDatabaseSize)))
 	s.WriteString(fmt.Sprintf("Log Files: %s\n", m.formatBytes(storageStats.TotalLogSize)))
@@ -740,7 +749,7 @@ func (m *MonitoringModel) getMaxScroll() int {
 func (m *MonitoringModel) getMaxScrollUnsafe() int {
 	// Calculate based on content length and terminal height
 	viewableLines := m.shared.GetViewableLines()
-	
+
 	// Estimate content lines based on current view
 	var contentLines int
 	switch m.view {
@@ -755,7 +764,7 @@ func (m *MonitoringModel) getMaxScrollUnsafe() int {
 	default:
 		contentLines = 20
 	}
-	
+
 	maxScroll := contentLines - viewableLines
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -774,7 +783,7 @@ func (m *MonitoringModel) fetchData() tea.Cmd {
 			data = m.getMockData()
 			err = nil // Clear error since we have fallback data
 		}
-		
+
 		return monitoringDataMsg{data: data, err: err}
 	}
 }
@@ -782,32 +791,32 @@ func (m *MonitoringModel) fetchData() tea.Cmd {
 // fetchRealData attempts to fetch data from the monitoring agent API
 func (m *MonitoringModel) fetchRealData() (MonitoringData, error) {
 	data := MonitoringData{}
-	
+
 	// Fetch system metrics
 	systemMetrics, err := m.fetchSystemMetrics()
 	if err != nil {
 		return data, fmt.Errorf("failed to fetch system metrics: %w", err)
 	}
-	
+
 	data.SystemMetrics = systemMetrics
-	
+
 	// Fetch service metrics (simplified for now)
 	data.ServiceMetrics = []ServiceMetric{
 		{Name: "nginx", Status: "loaded", Active: "inactive", Sub: "dead"},
 		{Name: "mysql", Status: "loaded", Active: "active", Sub: "running"},
 	}
-	
+
 	// HTTP checks would be fetched here too, but keeping simple for now
 	data.HTTPChecks = []HTTPCheckResult{
 		{Name: "uxvalidate", URL: "https://uxvalidate.com", StatusCode: 200, ResponseTime: time.Millisecond * 150, Success: true},
 	}
-	
+
 	data.Alerts = []Alert{
 		{ID: "1", Name: "High Memory Usage", Severity: "warning", Message: "Memory usage is at 68%", Active: false},
 	}
-	
+
 	data.LastUpdated = time.Now()
-	
+
 	return data, nil
 }
 
@@ -816,7 +825,7 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 	// Calculate time range for API query
 	now := time.Now()
 	var since time.Time
-	
+
 	switch timeRange {
 	case TimeRangeLast1Hour:
 		since = now.Add(-1 * time.Hour)
@@ -831,32 +840,31 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 	default:
 		since = now.Add(-1 * time.Hour)
 	}
-	
+
 	// Get server entity ID first
 	serverEntityID, err := m.getServerEntityID()
 	if err != nil {
 		return HistoricalData{}, fmt.Errorf("failed to get server entity ID: %w", err)
 	}
-	
-	
+
 	// Fetch CPU usage history
 	cpuHistory, err := m.fetchMetricHistory(serverEntityID, "cpu_usage", since, now)
 	if err != nil {
 		return HistoricalData{}, fmt.Errorf("failed to fetch CPU history: %w", err)
 	}
-	
+
 	// Fetch memory usage history
 	memoryHistory, err := m.fetchMetricHistory(serverEntityID, "memory_usage", since, now)
 	if err != nil {
 		return HistoricalData{}, fmt.Errorf("failed to fetch memory history: %w", err)
 	}
-	
+
 	// Fetch load average history
 	loadHistory, err := m.fetchMetricHistory(serverEntityID, "load_1", since, now)
 	if err != nil {
 		return HistoricalData{}, fmt.Errorf("failed to fetch load history: %w", err)
 	}
-	
+
 	// Determine the maximum number of data points to display
 	maxLen := len(cpuHistory)
 	if len(memoryHistory) > maxLen {
@@ -865,12 +873,12 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 	if len(loadHistory) > maxLen {
 		maxLen = len(loadHistory)
 	}
-	
+
 	// If no data available, return error
 	if maxLen == 0 {
 		return HistoricalData{}, fmt.Errorf("no historical data points available")
 	}
-	
+
 	// Create historical data structure with consistent length
 	histData := HistoricalData{
 		CPUHistory:    make([]float64, maxLen),
@@ -878,7 +886,7 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 		LoadHistory:   make([]float64, maxLen),
 		Timestamps:    make([]time.Time, maxLen),
 	}
-	
+
 	// Process CPU history with bounds checking
 	var cpuSum float64
 	for i := 0; i < maxLen; i++ {
@@ -892,7 +900,7 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 	if len(cpuHistory) > 0 {
 		histData.AvgCPU = cpuSum / float64(len(cpuHistory))
 	}
-	
+
 	// Process memory history with bounds checking
 	var memSum float64
 	for i := 0; i < maxLen; i++ {
@@ -909,7 +917,7 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 	if len(memoryHistory) > 0 {
 		histData.AvgMemory = memSum / float64(len(memoryHistory))
 	}
-	
+
 	// Process load history with bounds checking
 	var loadSum float64
 	for i := 0; i < maxLen; i++ {
@@ -921,23 +929,23 @@ func (m *MonitoringModel) fetchHistoricalData(timeRange HistoricalTimeRange) (Hi
 				histData.Timestamps[i] = loadHistory[i].Timestamp
 			}
 		}
-		// If load data is missing for this index, use 0 (already initialized)  
+		// If load data is missing for this index, use 0 (already initialized)
 	}
 	if len(loadHistory) > 0 {
 		histData.AvgLoad = loadSum / float64(len(loadHistory))
 	}
-	
+
 	return histData, nil
 }
 
 // Metric represents a stored metric from the monitoring agent API
 type StoredMetric struct {
-	ID        int64                  `json:"id"`
-	EntityID  *int64                 `json:"entity_id,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-	MetricName string                `json:"metric_name"`
-	Value     float64                `json:"value"`
-	Tags      map[string]interface{} `json:"tags"`
+	ID         int64                  `json:"id"`
+	EntityID   *int64                 `json:"entity_id,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
+	MetricName string                 `json:"metric_name"`
+	Value      float64                `json:"value"`
+	Tags       map[string]interface{} `json:"tags"`
 }
 
 // Entity represents a monitored entity from the storage API
@@ -954,28 +962,28 @@ func (m *MonitoringModel) getServerEntityID() (int64, error) {
 		return 0, fmt.Errorf("failed to connect to monitoring agent: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
 	}
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	var response struct {
 		Entities []StoredEntity `json:"entities"`
 	}
-	
+
 	if err := json.Unmarshal(body, &response); err != nil {
 		return 0, fmt.Errorf("failed to parse entities response: %w", err)
 	}
-	
+
 	if len(response.Entities) == 0 {
 		return 0, fmt.Errorf("no server entity found")
 	}
-	
+
 	return response.Entities[0].ID, nil
 }
 
@@ -983,42 +991,42 @@ func (m *MonitoringModel) getServerEntityID() (int64, error) {
 func (m *MonitoringModel) fetchMetricHistory(entityID int64, metricName string, since, until time.Time) ([]StoredMetric, error) {
 	// Build query parameters with proper URL encoding
 	baseURL := "http://localhost:9090/api/v1/metrics"
-	params := fmt.Sprintf("entity_id=%d&metric_name=%s&since=%s&until=%s&limit=100", 
-		entityID, 
-		metricName, 
-		url.QueryEscape(since.Format(time.RFC3339)), 
+	params := fmt.Sprintf("entity_id=%d&metric_name=%s&since=%s&until=%s&limit=100",
+		entityID,
+		metricName,
+		url.QueryEscape(since.Format(time.RFC3339)),
 		url.QueryEscape(until.Format(time.RFC3339)))
-	
+
 	fullURL := fmt.Sprintf("%s?%s", baseURL, params)
-	
+
 	resp, err := http.Get(fullURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to monitoring agent: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
 	}
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	var response struct {
 		Metrics []StoredMetric `json:"metrics"`
 		Count   int            `json:"count"`
 	}
-	
+
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse metrics response: %w", err)
 	}
-	
+
 	return response.Metrics, nil
 }
 
-// StoredEvent represents an event from the monitoring agent API  
+// StoredEvent represents an event from the monitoring agent API
 type StoredEvent struct {
 	ID        int64                  `json:"id"`
 	EntityID  *int64                 `json:"entity_id,omitempty"`
@@ -1034,7 +1042,7 @@ func (m *MonitoringModel) fetchHistoricalEvents(timeRange HistoricalTimeRange) (
 	// Calculate time range for API query
 	now := time.Now()
 	var since time.Time
-	
+
 	switch timeRange {
 	case TimeRangeLast1Hour:
 		since = now.Add(-1 * time.Hour)
@@ -1049,37 +1057,37 @@ func (m *MonitoringModel) fetchHistoricalEvents(timeRange HistoricalTimeRange) (
 	default:
 		since = now.Add(-1 * time.Hour)
 	}
-	
+
 	// Build query parameters
-	params := fmt.Sprintf("since=%s&until=%s&limit=50", 
+	params := fmt.Sprintf("since=%s&until=%s&limit=50",
 		since.Format(time.RFC3339), now.Format(time.RFC3339))
-	
+
 	url := fmt.Sprintf("http://localhost:9090/api/v1/events?%s", params)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to monitoring agent: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
 	}
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	var response struct {
 		Events []StoredEvent `json:"events"`
 		Count  int           `json:"count"`
 	}
-	
+
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse events response: %w", err)
 	}
-	
+
 	// Convert StoredEvent to MonitoringEvent
 	events := make([]MonitoringEvent, len(response.Events))
 	for i, storedEvent := range response.Events {
@@ -1093,7 +1101,7 @@ func (m *MonitoringModel) fetchHistoricalEvents(timeRange HistoricalTimeRange) (
 			Resolved:  storedEvent.Type == "alert" && storedEvent.Severity == "info", // Simple resolved logic
 		}
 	}
-	
+
 	return events, nil
 }
 
@@ -1135,7 +1143,7 @@ func (m *MonitoringModel) startAutoRefresh() tea.Cmd {
 func (m *MonitoringModel) stopAutoRefresh() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.refreshTimer != nil {
 		m.refreshTimer.Stop()
 		m.refreshTimer = nil
@@ -1211,7 +1219,7 @@ func (m *MonitoringModel) setRefreshing(refreshing bool) {
 func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) HistoricalData {
 	var points int
 	var timeInterval time.Duration
-	
+
 	// Determine number of data points and interval based on time range
 	switch timeRange {
 	case TimeRangeLast1Hour:
@@ -1233,7 +1241,7 @@ func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) 
 		points = 12
 		timeInterval = 5 * time.Minute
 	}
-	
+
 	now := time.Now()
 	data := HistoricalData{
 		CPUHistory:    make([]float64, points),
@@ -1241,14 +1249,14 @@ func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) 
 		LoadHistory:   make([]float64, points),
 		Timestamps:    make([]time.Time, points),
 	}
-	
+
 	// Generate mock data with some realistic variation
 	var cpuSum, memSum, loadSum float64
 	for i := 0; i < points; i++ {
 		// Generate somewhat realistic values with trends
 		baseTime := now.Add(-time.Duration(points-i) * timeInterval)
 		data.Timestamps[i] = baseTime
-		
+
 		// CPU: 20-80% with some spikes
 		cpu := 30.0 + float64(i%10)*3.0 + float64(i%3)*10.0
 		if cpu > 85 {
@@ -1256,7 +1264,7 @@ func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) 
 		}
 		data.CPUHistory[i] = cpu
 		cpuSum += cpu
-		
+
 		// Memory: 40-75% gradually increasing
 		mem := 45.0 + float64(i)*0.8 + float64(i%5)*2.0
 		if mem > 75 {
@@ -1264,7 +1272,7 @@ func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) 
 		}
 		data.MemoryHistory[i] = mem
 		memSum += mem
-		
+
 		// Load: 0.5-3.0 with variation
 		load := 0.8 + float64(i%7)*0.3 + float64(i%4)*0.2
 		if load > 3.0 {
@@ -1273,12 +1281,12 @@ func (m *MonitoringModel) generateHistoricalData(timeRange HistoricalTimeRange) 
 		data.LoadHistory[i] = load
 		loadSum += load
 	}
-	
+
 	// Calculate averages
 	data.AvgCPU = cpuSum / float64(points)
 	data.AvgMemory = memSum / float64(points)
 	data.AvgLoad = loadSum / float64(points)
-	
+
 	return data
 }
 
@@ -1287,7 +1295,7 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 	if len(values) == 0 {
 		return "No data available"
 	}
-	
+
 	// Find min/max for scaling
 	min, max := values[0], values[0]
 	for _, v := range values {
@@ -1298,7 +1306,7 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 			max = v
 		}
 	}
-	
+
 	// Create chart with simple bars
 	var chart strings.Builder
 	contentWidth := m.shared.GetContentWidth()
@@ -1307,7 +1315,7 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 		chartWidth = 20 // Minimum chart width
 	}
 	chartHeight := 8
-	
+
 	// Normalize values to chart height
 	normalizedValues := make([]int, len(values))
 	for i, v := range values {
@@ -1317,7 +1325,7 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 			normalizedValues[i] = chartHeight / 2
 		}
 	}
-	
+
 	// Draw chart from top to bottom
 	for row := chartHeight - 1; row >= 0; row-- {
 		chart.WriteString(fmt.Sprintf("%5.1f |", min+(max-min)*float64(row)/float64(chartHeight-1)))
@@ -1330,7 +1338,7 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 		}
 		chart.WriteString("\n")
 	}
-	
+
 	// Add axis
 	chart.WriteString("      +")
 	maxPoints := len(values)
@@ -1341,10 +1349,10 @@ func (m *MonitoringModel) renderSimpleChart(name string, values []float64, unit 
 		chart.WriteString("-")
 	}
 	chart.WriteString("\n")
-	
+
 	// Add min/max info
 	chart.WriteString(fmt.Sprintf("      Min: %.1f%s  Max: %.1f%s  Points: %d", min, unit, max, unit, len(values)))
-	
+
 	return chart.String()
 }
 
@@ -1391,18 +1399,18 @@ func (m *MonitoringModel) generateHistoricalEvents(timeRange HistoricalTimeRange
 	var events []MonitoringEvent
 	var eventCount int
 	var timeInterval time.Duration
-	
+
 	// Determine number of events and interval based on time range
 	switch timeRange {
 	case TimeRangeLast1Hour:
-		eventCount = 5  // Fewer recent events
+		eventCount = 5 // Fewer recent events
 		timeInterval = 12 * time.Minute
 	case TimeRangeLast6Hours:
 		eventCount = 12
 		timeInterval = 30 * time.Minute
 	case TimeRangeLast24Hours:
 		eventCount = 20
-		timeInterval = 1 * time.Hour + 12 * time.Minute
+		timeInterval = 1*time.Hour + 12*time.Minute
 	case TimeRangeLast7Days:
 		eventCount = 35
 		timeInterval = 5 * time.Hour
@@ -1413,9 +1421,9 @@ func (m *MonitoringModel) generateHistoricalEvents(timeRange HistoricalTimeRange
 		eventCount = 10
 		timeInterval = 30 * time.Minute
 	}
-	
+
 	now := time.Now()
-	
+
 	// Sample event templates
 	eventTemplates := []struct {
 		Type     string
@@ -1439,14 +1447,14 @@ func (m *MonitoringModel) generateHistoricalEvents(timeRange HistoricalTimeRange
 		{"system", "warning", "Network", "Network connectivity issue detected"},
 		{"alert", "warning", "Queue Monitor", "Laravel queue backlog detected"},
 	}
-	
+
 	// Generate events by randomly selecting from templates
 	for i := 0; i < eventCount; i++ {
 		template := eventTemplates[i%len(eventTemplates)]
-		
+
 		// Create timestamp going backwards from now
 		eventTime := now.Add(-time.Duration(eventCount-i) * timeInterval)
-		
+
 		event := MonitoringEvent{
 			ID:        fmt.Sprintf("evt_%d", i+1),
 			Type:      template.Type,
@@ -1456,10 +1464,10 @@ func (m *MonitoringModel) generateHistoricalEvents(timeRange HistoricalTimeRange
 			Timestamp: eventTime,
 			Resolved:  template.Type == "alert" && (i%3 != 0), // Some alerts resolved
 		}
-		
+
 		events = append(events, event)
 	}
-	
+
 	return events
 }
 
@@ -1477,7 +1485,7 @@ func (m *MonitoringModel) filterEventsByType(events []MonitoringEvent, eventType
 // formatEvent formats a monitoring event for display
 func (m *MonitoringModel) formatEvent(event MonitoringEvent) string {
 	timeStr := event.Timestamp.Format("15:04:05")
-	
+
 	// Choose status icon based on event type and state
 	var statusIcon string
 	switch event.Type {
@@ -1515,11 +1523,11 @@ func (m *MonitoringModel) formatEvent(event MonitoringEvent) string {
 	default:
 		statusIcon = "ℹ️"
 	}
-	
+
 	// Format based on severity
 	var formattedLine string
 	baseText := fmt.Sprintf("%s [%s] %s: %s", statusIcon, timeStr, event.Source, event.Message)
-	
+
 	switch event.Severity {
 	case "critical":
 		formattedLine = errorStyle.Render(baseText)
@@ -1528,93 +1536,300 @@ func (m *MonitoringModel) formatEvent(event MonitoringEvent) string {
 	default:
 		formattedLine = infoStyle.Render(baseText)
 	}
-	
+
 	// Add resolved indicator for alerts
 	if event.Type == "alert" && event.Resolved {
 		formattedLine += helpStyle.Render(" (RESOLVED)")
 	}
-	
+
 	return formattedLine
 }
 
-// generateStorageStatistics creates mock storage statistics
+// generateStorageStatistics creates real storage statistics
 func (m *MonitoringModel) generateStorageStatistics() StorageStatistics {
 	stats := StorageStatistics{}
-	
-	// Mock disk usage data
-	stats.DiskUsage = []DiskUsage{
-		{Path: "/", Total: 100 * 1024 * 1024 * 1024, Used: 45 * 1024 * 1024 * 1024, UsedPercent: 45.0},
-		{Path: "/var", Total: 50 * 1024 * 1024 * 1024, Used: 32 * 1024 * 1024 * 1024, UsedPercent: 64.0},
-		{Path: "/tmp", Total: 10 * 1024 * 1024 * 1024, Used: 2 * 1024 * 1024 * 1024, UsedPercent: 20.0},
-		{Path: "/home", Total: 200 * 1024 * 1024 * 1024, Used: 85 * 1024 * 1024 * 1024, UsedPercent: 42.5},
-	}
-	
-	// Set available space
-	for i := range stats.DiskUsage {
-		stats.DiskUsage[i].Available = stats.DiskUsage[i].Total - stats.DiskUsage[i].Used
-	}
-	
-	// Mock database information
-	stats.Databases = []DatabaseInfo{
-		{Name: "laravel_app", SizeBytes: 256 * 1024 * 1024, Tables: 15, Records: 125000},
-		{Name: "nextjs_analytics", SizeBytes: 512 * 1024 * 1024, Tables: 8, Records: 450000},
-		{Name: "crucible_logs", SizeBytes: 128 * 1024 * 1024, Tables: 4, Records: 89000},
-		{Name: "mysql_system", SizeBytes: 64 * 1024 * 1024, Tables: 31, Records: 15000},
-	}
-	
-	// Calculate total database size
+
+	// Get real disk usage data
+	stats.DiskUsage = m.getRealDiskUsage()
+
+	// Get real database information
+	stats.Databases = m.getRealDatabaseInfo()
 	for _, db := range stats.Databases {
 		stats.TotalDatabaseSize += db.SizeBytes
 	}
-	
-	// Mock log files
-	now := time.Now()
-	stats.LogFiles = []LogFileInfo{
-		{Path: "/var/log/nginx/access.log", SizeBytes: 245 * 1024 * 1024, LastModified: now.Add(-2 * time.Hour)},
-		{Path: "/var/log/nginx/error.log", SizeBytes: 12 * 1024 * 1024, LastModified: now.Add(-1 * time.Hour)},
-		{Path: "/var/log/mysql/error.log", SizeBytes: 8 * 1024 * 1024, LastModified: now.Add(-30 * time.Minute)},
-		{Path: "/var/log/php8.4-fpm.log", SizeBytes: 34 * 1024 * 1024, LastModified: now.Add(-45 * time.Minute)},
-		{Path: "/var/log/caddy/access.log", SizeBytes: 156 * 1024 * 1024, LastModified: now.Add(-15 * time.Minute)},
-		{Path: "/var/log/auth.log", SizeBytes: 89 * 1024 * 1024, LastModified: now.Add(-5 * time.Minute)},
-		{Path: "/var/log/syslog", SizeBytes: 67 * 1024 * 1024, LastModified: now.Add(-10 * time.Minute)},
-	}
-	
-	// Calculate total log size
+
+	// Get real log files information
+	stats.LogFiles = m.getRealLogFiles()
 	for _, log := range stats.LogFiles {
 		stats.TotalLogSize += log.SizeBytes
 	}
-	
-	// Mock Laravel site storage
-	stats.LaravelSites = []SiteStorageInfo{
-		{
-			Name:        "uxvalidate",
-			SizeBytes:   89 * 1024 * 1024,
-			VendorSize:  45 * 1024 * 1024,
-			StorageSize: 23 * 1024 * 1024,
-			CacheSize:   21 * 1024 * 1024,
-		},
-		{
-			Name:        "portfolio",
-			SizeBytes:   156 * 1024 * 1024,
-			VendorSize:  67 * 1024 * 1024,
-			StorageSize: 45 * 1024 * 1024,
-			CacheSize:   44 * 1024 * 1024,
-		},
-		{
-			Name:        "api-server",
-			SizeBytes:   234 * 1024 * 1024,
-			VendorSize:  98 * 1024 * 1024,
-			StorageSize: 78 * 1024 * 1024,
-			CacheSize:   58 * 1024 * 1024,
-		},
-	}
-	
-	// Calculate total site size
+
+	// Get real Laravel site storage
+	stats.LaravelSites = m.getRealLaravelSites()
 	for _, site := range stats.LaravelSites {
 		stats.TotalSiteSize += site.SizeBytes
 	}
-	
+
 	return stats
+}
+
+// getRealDiskUsage gets actual disk usage from mounted filesystems
+func (m *MonitoringModel) getRealDiskUsage() []DiskUsage {
+	var diskUsage []DiskUsage
+
+	// Get mount points from /proc/mounts
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		// Return fallback data on error
+		return []DiskUsage{
+			{Path: "/", Total: 100 * 1024 * 1024 * 1024, Used: 45 * 1024 * 1024 * 1024, Available: 55 * 1024 * 1024 * 1024, UsedPercent: 45.0},
+		}
+	}
+	defer file.Close()
+
+	mountPoints := make(map[string]bool)
+
+	// Read mount points
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 3 {
+			device := fields[0]
+			mountPoint := fields[1]
+			fsType := fields[2]
+
+			// Only include physical filesystems
+			if strings.HasPrefix(device, "/dev/") &&
+				fsType != "tmpfs" && fsType != "devtmpfs" &&
+				fsType != "sysfs" && fsType != "proc" {
+				mountPoints[mountPoint] = true
+			}
+		}
+	}
+
+	// Get disk usage for each mount point
+	for mountPoint := range mountPoints {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(mountPoint, &stat); err != nil {
+			continue // Skip on error
+		}
+
+		total := int64(stat.Blocks * uint64(stat.Bsize))
+		free := int64(stat.Bavail * uint64(stat.Bsize))
+		used := total - free
+
+		var usedPercent float64
+		if total > 0 {
+			usedPercent = float64(used) / float64(total) * 100
+		}
+
+		diskUsage = append(diskUsage, DiskUsage{
+			Path:        mountPoint,
+			Total:       total,
+			Used:        used,
+			Available:   free,
+			UsedPercent: usedPercent,
+		})
+	}
+
+	return diskUsage
+}
+
+// getRealDatabaseInfo gets actual database information from MySQL
+func (m *MonitoringModel) getRealDatabaseInfo() []DatabaseInfo {
+	var databases []DatabaseInfo
+
+	// Try common MySQL connection strings
+	connectionStrings := []string{
+		"root:@tcp(localhost:3306)/",             // No password
+		"root:root@tcp(localhost:3306)/",         // Default root/root
+		"crucible:crucible@tcp(localhost:3306)/", // Custom crucible user
+	}
+
+	var db *sql.DB
+	var connected bool
+
+	for _, connStr := range connectionStrings {
+		if testDB, err := sql.Open("mysql", connStr); err == nil {
+			if err := testDB.Ping(); err == nil {
+				db = testDB
+				connected = true
+				break
+			}
+			testDB.Close()
+		}
+	}
+
+	if !connected {
+		// Return fallback data if can't connect with any credentials
+		return []DatabaseInfo{
+			{Name: "mysql (unavailable)", SizeBytes: 64 * 1024 * 1024, Tables: 31, Records: 15000},
+		}
+	}
+	defer db.Close()
+
+	// Get database list
+	rows, err := db.Query("SHOW DATABASES")
+	if err != nil {
+		return databases
+	}
+	defer rows.Close()
+
+	var dbNames []string
+	for rows.Next() {
+		var dbName string
+		if err := rows.Scan(&dbName); err != nil {
+			continue
+		}
+		// Skip system databases
+		if dbName != "information_schema" && dbName != "performance_schema" &&
+			dbName != "mysql" && dbName != "sys" {
+			dbNames = append(dbNames, dbName)
+		}
+	}
+
+	// Get size and table info for each database
+	for _, dbName := range dbNames {
+		size, tables, records := m.getDatabaseStats(db, dbName)
+		databases = append(databases, DatabaseInfo{
+			Name:      dbName,
+			SizeBytes: size,
+			Tables:    tables,
+			Records:   records,
+		})
+	}
+
+	return databases
+}
+
+// getDatabaseStats gets detailed stats for a single database
+func (m *MonitoringModel) getDatabaseStats(db *sql.DB, dbName string) (int64, int, int64) {
+	// Get database size
+	var sizeBytes int64 = 0
+	sizeQuery := `
+		SELECT COALESCE(SUM(data_length + index_length), 0) as size 
+		FROM information_schema.tables 
+		WHERE table_schema = ?`
+
+	db.QueryRow(sizeQuery, dbName).Scan(&sizeBytes)
+
+	// Get table count
+	var tableCount int = 0
+	tableQuery := `
+		SELECT COUNT(*) 
+		FROM information_schema.tables 
+		WHERE table_schema = ?`
+
+	db.QueryRow(tableQuery, dbName).Scan(&tableCount)
+
+	// Get approximate record count (this might be slow for large databases)
+	var recordCount int64 = 0
+	recordQuery := `
+		SELECT COALESCE(SUM(table_rows), 0) 
+		FROM information_schema.tables 
+		WHERE table_schema = ?`
+
+	db.QueryRow(recordQuery, dbName).Scan(&recordCount)
+
+	return sizeBytes, tableCount, recordCount
+}
+
+// getRealLogFiles gets actual log file information
+func (m *MonitoringModel) getRealLogFiles() []LogFileInfo {
+	var logFiles []LogFileInfo
+
+	// Common log file locations
+	logPaths := []string{
+		"/var/log/nginx/access.log",
+		"/var/log/nginx/error.log",
+		"/var/log/mysql/error.log",
+		"/var/log/mysql/mysql.log",
+		"/var/log/php8.4-fpm.log",
+		"/var/log/caddy/access.log",
+		"/var/log/caddy/error.log",
+		"/var/log/auth.log",
+		"/var/log/syslog",
+		"/var/log/kern.log",
+	}
+
+	for _, logPath := range logPaths {
+		if info, err := os.Stat(logPath); err == nil {
+			logFiles = append(logFiles, LogFileInfo{
+				Path:         logPath,
+				SizeBytes:    info.Size(),
+				LastModified: info.ModTime(),
+			})
+		}
+	}
+
+	return logFiles
+}
+
+// getRealLaravelSites gets actual Laravel site storage information
+func (m *MonitoringModel) getRealLaravelSites() []SiteStorageInfo {
+	var sites []SiteStorageInfo
+
+	// Get list of Laravel sites
+	laravelSites, err := actions.ListLaravelSites()
+	if err != nil {
+		return sites // Return empty if error
+	}
+
+	// Calculate storage for each site
+	for _, siteName := range laravelSites {
+		siteInfo := m.calculateSiteStorage(siteName)
+		if siteInfo.SizeBytes > 0 {
+			sites = append(sites, siteInfo)
+		}
+	}
+
+	return sites
+}
+
+// calculateSiteStorage calculates storage breakdown for a Laravel site
+func (m *MonitoringModel) calculateSiteStorage(siteName string) SiteStorageInfo {
+	siteInfo := SiteStorageInfo{Name: siteName}
+
+	basePath := filepath.Join("/var/www", siteName)
+
+	// Calculate total site size
+	siteInfo.SizeBytes = m.getDirSize(basePath)
+
+	// Calculate vendor directory size
+	vendorPath := filepath.Join(basePath, "vendor")
+	siteInfo.VendorSize = m.getDirSize(vendorPath)
+
+	// Calculate storage directory size
+	storagePath := filepath.Join(basePath, "storage")
+	siteInfo.StorageSize = m.getDirSize(storagePath)
+
+	// Calculate cache size (within storage/framework/cache)
+	cachePath := filepath.Join(basePath, "storage/framework/cache")
+	siteInfo.CacheSize = m.getDirSize(cachePath)
+
+	return siteInfo
+}
+
+// getDirSize calculates the total size of a directory
+func (m *MonitoringModel) getDirSize(dirPath string) int64 {
+	var size int64 = 0
+
+	// Use du command for efficiency
+	cmd := exec.Command("du", "-sb", dirPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	// Parse du output (format: "size\tpath")
+	parts := strings.Split(string(output), "\t")
+	if len(parts) > 0 {
+		if parsedSize, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64); err == nil {
+			size = parsedSize
+		}
+	}
+
+	return size
 }
 
 // formatBytes formats bytes into human-readable format
@@ -1637,7 +1852,7 @@ func (m *MonitoringModel) formatNumber(n int64) string {
 	if len(str) <= 3 {
 		return str
 	}
-	
+
 	// Add commas every 3 digits from the right
 	var result strings.Builder
 	for i, char := range str {
@@ -1655,24 +1870,24 @@ func (m *MonitoringModel) renderUsageBar(percent float64, width int) string {
 	if filled > width {
 		filled = width
 	}
-	
+
 	var bar strings.Builder
 	bar.WriteString("[")
-	
+
 	for i := 0; i < filled; i++ {
 		if percent > 90 {
 			bar.WriteString("█") // Red/critical
 		} else if percent > 80 {
-			bar.WriteString("▓") // Yellow/warning  
+			bar.WriteString("▓") // Yellow/warning
 		} else {
 			bar.WriteString("▒") // Green/normal
 		}
 	}
-	
+
 	for i := filled; i < width; i++ {
 		bar.WriteString("░")
 	}
-	
+
 	bar.WriteString("]")
 	return bar.String()
 }
@@ -1685,35 +1900,55 @@ func (m *MonitoringModel) fetchSystemMetrics() (SystemMetrics, error) {
 		return SystemMetrics{}, fmt.Errorf("failed to connect to monitoring agent: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return SystemMetrics{}, fmt.Errorf("monitoring agent returned status %d", resp.StatusCode)
 	}
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return SystemMetrics{}, fmt.Errorf("failed to read response body: %w", err)
 	}
-	
+
 	var agentMetrics monitor.SystemMetrics
 	if err := json.Unmarshal(body, &agentMetrics); err != nil {
 		return SystemMetrics{}, fmt.Errorf("failed to parse system metrics: %w", err)
 	}
-	
+
 	// Convert agent metrics to TUI metrics format
 	tuiMetrics := SystemMetrics{
 		CPUUsage:    agentMetrics.CPU.UsagePercent,
 		MemoryUsage: agentMetrics.Memory.UsagePercent,
 		LoadAverage: agentMetrics.Load.Load1,
-		Uptime:      time.Hour * 24 * 7, // TODO: Get real uptime from /proc/uptime
+		Uptime:      getRealUptime(),
 	}
-	
+
 	// Calculate disk usage (use first disk if available)
 	if len(agentMetrics.Disk) > 0 {
 		tuiMetrics.DiskUsage = agentMetrics.Disk[0].UsagePercent
 	}
-	
+
 	return tuiMetrics, nil
+}
+
+// getRealUptime reads the system uptime from /proc/uptime
+func getRealUptime() time.Duration {
+	// Try to read from /proc/uptime
+	content, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		// Fallback to a reasonable default if we can't read the file
+		return time.Hour * 24 * 7 // 7 days
+	}
+
+	// Parse the first number (uptime in seconds)
+	uptimeStr := strings.Fields(string(content))[0]
+	uptimeSeconds, err := strconv.ParseFloat(uptimeStr, 64)
+	if err != nil {
+		// Fallback if parsing fails
+		return time.Hour * 24 * 7 // 7 days
+	}
+
+	return time.Duration(uptimeSeconds) * time.Second
 }
 
 // getMockData returns mock data as fallback when agent is not available

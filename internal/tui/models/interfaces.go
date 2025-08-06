@@ -33,7 +33,7 @@ func (b *BaseModel) GoBack() tea.Cmd {
 
 // All models are now implemented in their respective files:
 // - MenuModel: menu.go
-// - FormModel: form.go  
+// - FormModel: form.go
 // - NextJSModel & NextJSFormModel: nextjs.go
 // - LaravelModel & LaravelFormModel: laravel.go
 // - MonitoringModel: monitoring.go

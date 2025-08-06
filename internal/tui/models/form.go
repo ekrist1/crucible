@@ -22,16 +22,16 @@ const (
 
 // FormField represents a single form field
 type FormField struct {
-	Name         string
-	Label        string
-	Value        string
-	FieldType    FormFieldType
-	Required     bool
-	Placeholder  string
-	Options      []string // For select fields
-	Validator    func(string) error
-	MaxLength    int
-	MinLength    int
+	Name        string
+	Label       string
+	Value       string
+	FieldType   FormFieldType
+	Required    bool
+	Placeholder string
+	Options     []string // For select fields
+	Validator   func(string) error
+	MaxLength   int
+	MinLength   int
 }
 
 // FormStep represents a step in a multi-step form
@@ -44,16 +44,16 @@ type FormStep struct {
 // FormModel handles generic form input and validation
 type FormModel struct {
 	BaseModel
-	title         string
-	steps         []FormStep
-	currentStep   int
-	currentField  int
-	inputCursor   int
-	values        map[string]string
-	errors        map[string]string
-	onSubmit      func(map[string]string) tea.Cmd
-	onCancel      func() tea.Cmd
-	showHelp      bool
+	title        string
+	steps        []FormStep
+	currentStep  int
+	currentField int
+	inputCursor  int
+	values       map[string]string
+	errors       map[string]string
+	onSubmit     func(map[string]string) tea.Cmd
+	onCancel     func() tea.Cmd
+	showHelp     bool
 }
 
 // Styles are now centralized in styles.go
@@ -200,7 +200,7 @@ func (f *FormModel) View() string {
 
 	// Progress indicator
 	if len(f.steps) > 1 {
-		progress := fmt.Sprintf("Step %d of %d: %s", 
+		progress := fmt.Sprintf("Step %d of %d: %s",
 			f.currentStep+1, len(f.steps), f.steps[f.currentStep].Title)
 		s.WriteString(progressStyle.Render(progress))
 		s.WriteString("\n\n")
@@ -339,7 +339,7 @@ func (f *FormModel) renderHelp() string {
 	help := []string{
 		"Navigation:",
 		"  Tab/↓      - Next field",
-		"  Shift+Tab/↑ - Previous field", 
+		"  Shift+Tab/↑ - Previous field",
 		"  Ctrl+N     - Next step (if valid)",
 		"  Ctrl+P     - Previous step",
 		"  Enter      - Submit/Next step",
@@ -543,7 +543,7 @@ func (f *FormModel) cycleSelectOption(field FormField) {
 
 	currentValue := f.values[field.Name]
 	currentIndex := -1
-	
+
 	// Find current option index
 	for i, option := range field.Options {
 		if option == currentValue {
@@ -565,7 +565,7 @@ func (f *FormModel) cyclePrevSelectOption() {
 
 	currentValue := f.values[field.Name]
 	currentIndex := -1
-	
+
 	// Find current option index
 	for i, option := range field.Options {
 		if option == currentValue {
@@ -611,8 +611,8 @@ func (f *FormModel) setCurrentFieldValue(value string) {
 }
 
 func (f *FormModel) isAtLastField() bool {
-	return f.currentStep == len(f.steps)-1 && 
-		   f.currentField == len(f.steps[f.currentStep].Fields)-1
+	return f.currentStep == len(f.steps)-1 &&
+		f.currentField == len(f.steps[f.currentStep].Fields)-1
 }
 
 func (f *FormModel) isAtLastFieldOfStep() bool {

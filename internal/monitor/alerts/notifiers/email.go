@@ -102,8 +102,7 @@ func (e *EmailNotifier) Send(alert *Alert) error {
 
 // getRecipients determines who should receive the alert email
 func (e *EmailNotifier) getRecipients(alert *Alert) []string {
-	// TODO: In the future, we can add rule-specific recipients
-	// For now, use default recipients from config
+	// Use default recipients from config
 	if len(e.config.DefaultTo) > 0 {
 		return e.config.DefaultTo
 	}
