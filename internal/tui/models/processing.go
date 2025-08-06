@@ -21,6 +21,7 @@ type ProcessingModel struct {
 	scrollPos   int
 	isComplete  bool
 	canNavigate bool
+	cleanOutput bool
 }
 
 // NewProcessingModel creates a new processing model
@@ -115,6 +116,11 @@ func (m *ProcessingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *ProcessingModel) View() string {
 	var s strings.Builder
 
+	// Clean output mode for installations
+	if m.cleanOutput {
+		return m.renderCleanView()
+	}
+
 	// Title
 	s.WriteString(titleStyle.Render("🔄 Processing"))
 	s.WriteString("\n\n")
@@ -168,6 +174,125 @@ func (m *ProcessingModel) View() string {
 	}
 
 	return s.String()
+}
+
+// renderCleanView renders a clean installation interface
+func (m *ProcessingModel) renderCleanView() string {
+	var s strings.Builder
+	
+	// Determine service name from the command queue or use generic
+	serviceName := "Service"
+	if m.shared.CommandQueue != nil && m.shared.CommandQueue.ServiceName != "" {
+		serviceName = strings.Title(m.shared.CommandQueue.ServiceName)
+	}
+	
+	// Title with status
+	if m.isComplete {
+		if len(m.report) > 0 && strings.Contains(strings.Join(m.report, " "), "❌") {
+			s.WriteString(titleStyle.Render(fmt.Sprintf("❌ %s Installation Failed", serviceName)))
+		} else {
+			s.WriteString(titleStyle.Render(fmt.Sprintf("✅ %s Installation Complete", serviceName)))
+		}
+	} else {
+		s.WriteString(titleStyle.Render(fmt.Sprintf("🔧 Installing %s", serviceName)))
+	}
+	s.WriteString("\n\n")
+	
+	if m.isComplete {
+		// Show completion state
+		if len(m.report) > 0 && strings.Contains(strings.Join(m.report, " "), "❌") {
+			// Show error state
+			s.WriteString(errorStyle.Render("Installation failed with error:"))
+			s.WriteString("\n\n")
+			
+			// Show only error messages from report
+			for _, line := range m.report {
+				if strings.Contains(line, "❌") || strings.Contains(line, "Error") || strings.Contains(line, "error") {
+					s.WriteString(line)
+					s.WriteString("\n")
+				}
+			}
+		} else {
+			// Show success state
+			s.WriteString(infoStyle.Render("🎉 Installation completed successfully!"))
+			s.WriteString("\n\n")
+			
+			// Show summary
+			s.WriteString(helpStyle.Render("Installation Summary:"))
+			s.WriteString("\n")
+			s.WriteString(fmt.Sprintf("• %s installed successfully\n", serviceName))
+			
+			// Add service-specific messages
+			switch strings.ToLower(serviceName) {
+			case "php":
+				s.WriteString("• PHP-FPM service configured and started\n")
+				s.WriteString("• Ready for Laravel and web development\n")
+			case "mysql":
+				s.WriteString("• MySQL service started and enabled\n")
+				s.WriteString("• Database server ready for applications\n")
+			case "caddy":
+				s.WriteString("• Caddy web server installed and running\n")
+				s.WriteString("• Ready to serve web applications\n")
+			case "nodejs", "node.js":
+				s.WriteString("• Node.js and npm installed successfully\n")
+				s.WriteString("• Ready for Next.js development\n")
+			}
+		}
+		s.WriteString("\n")
+		s.WriteString(helpStyle.Render("Press Enter or Esc to continue"))
+	} else {
+		// Show installation progress with progress bar
+		progressBar := m.renderProgressBar()
+		if progressBar != "" {
+			s.WriteString(progressBar)
+			s.WriteString("\n\n")
+		}
+		
+		// Show current step with spinner
+		s.WriteString(fmt.Sprintf("🔄 %s", m.message))
+		s.WriteString("\n\n")
+		s.WriteString(helpStyle.Render("Installing... Press Ctrl+C to cancel"))
+	}
+	
+	return s.String()
+}
+
+// renderProgressBar creates a visual progress bar for installations
+func (m *ProcessingModel) renderProgressBar() string {
+	if m.shared.CommandQueue == nil {
+		return ""
+	}
+	
+	queue := m.shared.CommandQueue
+	if len(queue.Commands) == 0 {
+		return ""
+	}
+	
+	currentStep := queue.Index 
+	totalSteps := len(queue.Commands)
+	
+	if totalSteps == 0 {
+		return ""
+	}
+	
+	width := 40
+	completed := float64(currentStep) / float64(totalSteps)
+	filledWidth := int(completed * float64(width))
+	
+	bar := strings.Builder{}
+	bar.WriteString("Progress: [")
+	
+	for i := 0; i < width; i++ {
+		if i < filledWidth {
+			bar.WriteString("█")
+		} else {
+			bar.WriteString("░")
+		}
+	}
+	
+	bar.WriteString(fmt.Sprintf("] %d/%d", currentStep, totalSteps))
+	
+	return infoStyle.Render(bar.String())
 }
 
 // handleCommandCompleted processes command completion
@@ -259,6 +384,11 @@ func (m *ProcessingModel) SetComplete(canNavigate bool) {
 // Initialize implements the ModelInitializer interface
 func (m *ProcessingModel) Initialize(data interface{}) {
 	if initData, ok := data.(map[string]interface{}); ok {
+		// Handle clean output flag
+		if cleanOutput, exists := initData["cleanOutput"].(bool); exists {
+			m.cleanOutput = cleanOutput
+		}
+		
 		// Handle specific actions
 		if action, exists := initData["action"].(string); exists {
 			m.handleAction(action, initData)
@@ -294,6 +424,10 @@ func (m *ProcessingModel) handleAction(action string, data map[string]interface{
 		m.handleLaravelList()
 	case "laravel-queue":
 		m.handleLaravelQueue()
+	case "laravel-create":
+		m.handleLaravelCreate(data)
+	case "nextjs-create":
+		m.handleNextJSCreate(data)
 	case "github-auth":
 		m.handleGitHubAuth()
 	case "service-status":
@@ -476,9 +610,15 @@ func (m *ProcessingModel) executeCommand(command, serviceName string) {
 	}
 
 	// Create the result
+	outputStr := string(output)
+	// For clean output mode, suppress verbose success output but keep errors
+	if m.cleanOutput && err == nil {
+		outputStr = "" // Suppress success output for clean installation UX
+	}
+	
 	result := logging.LoggedExecResult{
 		Command:   command,
-		Output:    string(output),
+		Output:    outputStr,
 		Error:     err,
 		ExitCode:  exitCode,
 		StartTime: startTime,
@@ -868,6 +1008,98 @@ EOF'`, supervisorConfigPath, site, site, site),
 		if ok {
 			m.message = description
 			go m.executeCommand(command, "Laravel Queue Workers")
+		}
+	}
+}
+
+// handleLaravelCreate creates a new Laravel site
+func (m *ProcessingModel) handleLaravelCreate(data map[string]interface{}) {
+	siteName, _ := data["siteName"].(string)
+	commands, _ := data["commands"].([]string)
+	descriptions, _ := data["descriptions"].([]string)
+	serviceName, _ := data["serviceName"].(string)
+	
+	if siteName == "" || len(commands) == 0 {
+		m.SetReport([]string{
+			errorStyle.Render("❌ Invalid Laravel site creation data"),
+		})
+		m.SetComplete(true)
+		return
+	}
+	
+	m.message = fmt.Sprintf("Creating Laravel site: %s", siteName)
+	m.isComplete = false
+	
+	// Initialize command queue
+	if m.shared.CommandQueue == nil {
+		m.shared.CommandQueue = NewCommandQueue()
+	}
+	
+	// Reset and populate command queue
+	m.shared.CommandQueue.Reset()
+	m.shared.CommandQueue.ServiceName = serviceName
+	
+	// Add commands to queue
+	for i, cmd := range commands {
+		desc := "Creating Laravel site..."
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		m.shared.CommandQueue.AddCommand(cmd, desc)
+	}
+	
+	// Start processing
+	if m.shared.CommandQueue.HasNext() {
+		command, description, ok := m.shared.CommandQueue.Next()
+		if ok {
+			m.message = description
+			go m.executeCommand(command, serviceName)
+		}
+	}
+}
+
+// handleNextJSCreate creates a new NextJS site
+func (m *ProcessingModel) handleNextJSCreate(data map[string]interface{}) {
+	siteName, _ := data["siteName"].(string)
+	commands, _ := data["commands"].([]string)
+	descriptions, _ := data["descriptions"].([]string)
+	serviceName, _ := data["serviceName"].(string)
+	
+	if siteName == "" || len(commands) == 0 {
+		m.SetReport([]string{
+			errorStyle.Render("❌ Invalid NextJS site creation data"),
+		})
+		m.SetComplete(true)
+		return
+	}
+	
+	m.message = fmt.Sprintf("Creating NextJS site: %s", siteName)
+	m.isComplete = false
+	
+	// Initialize command queue
+	if m.shared.CommandQueue == nil {
+		m.shared.CommandQueue = NewCommandQueue()
+	}
+	
+	// Reset and populate command queue
+	m.shared.CommandQueue.Reset()
+	m.shared.CommandQueue.ServiceName = serviceName
+	
+	// Add commands to queue
+	for i, cmd := range commands {
+		desc := "Creating NextJS site..."
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		m.shared.CommandQueue.AddCommand(cmd, desc)
+	}
+	
+	// Start processing
+	if m.shared.CommandQueue.HasNext() {
+		command, description, ok := m.shared.CommandQueue.Next()
+		if ok {
+			m.message = description
+			go m.executeCommand(command, serviceName)
 		}
 	}
 }

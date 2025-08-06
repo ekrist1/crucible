@@ -155,8 +155,15 @@ func (f *LaravelHybridFormModel) handleSubmit(values []string) tea.Cmd {
 		}
 	}
 
-	// Execute commands using the new command execution framework
-	return ExecuteCommandBatchAsync(commands, descriptions, "laravel-"+siteName)
+	// Navigate to processing state to execute Laravel site creation
+	return f.NavigateTo(StateProcessing, map[string]interface{}{
+		"action":      "laravel-create",
+		"commands":    commands,
+		"descriptions": descriptions,
+		"serviceName": "laravel-" + siteName,
+		"siteName":    siteName,
+		"domain":      domain,
+	})
 }
 
 // handleCancel handles form cancellation

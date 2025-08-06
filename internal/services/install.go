@@ -31,14 +31,14 @@ func InstallPHP() ([]string, []string, error) {
 		commands = []string{
 			"sudo dnf install -y https://rpms.remirepo.net/fedora/remi-release-$(rpm -E %fedora).rpm",
 			"sudo dnf module reset php -y",
-			"sudo dnf module enable php:remi-8.4 -y",
+			"sudo dnf module enable php:remi-8.3 -y",
 			"sudo dnf install -y php php-fpm php-mysqlnd php-xml php-gd php-curl php-mbstring php-zip php-intl php-bcmath",
 		}
 		descriptions = []string{
 			"Installing Remi repository...",
 			"Resetting PHP module...",
-			"Enabling PHP 8.4 module...",
-			"Installing PHP 8.4 and extensions...",
+			"Enabling PHP 8.3 module (latest stable)...",
+			"Installing PHP 8.3 and extensions...",
 		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported operating system: %s", osType)
@@ -385,23 +385,27 @@ func InstallSupervisor() ([]string, []string, error) {
 		commands = []string{
 			"sudo apt update",
 			"sudo apt install -y supervisor",
+			"sleep 2 && sudo systemctl daemon-reload",
 			"sudo systemctl start supervisor",
 			"sudo systemctl enable supervisor",
 		}
 		descriptions = []string{
 			"Updating package lists...",
 			"Installing Supervisor...",
+			"Refreshing systemd services...",
 			"Starting Supervisor service...",
 			"Enabling Supervisor service at boot...",
 		}
 	case "fedora":
 		commands = []string{
 			"sudo dnf install -y supervisor",
+			"sleep 2 && sudo systemctl daemon-reload",
 			"sudo systemctl start supervisord",
 			"sudo systemctl enable supervisord",
 		}
 		descriptions = []string{
 			"Installing Supervisor...",
+			"Refreshing systemd services...",
 			"Starting Supervisor service...",
 			"Enabling Supervisor service at boot...",
 		}

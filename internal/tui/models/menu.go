@@ -229,11 +229,12 @@ func (m *MenuModel) handleCoreServicesNavigation(item MenuItem) (tea.Model, tea.
 		return m, m.NavigateTo(StateNodeJSInstall, nil)
 	}
 
-	// For other services, navigate to processing state
+	// For other services, navigate to processing state with clean output flag
 	return m, m.NavigateTo(StateProcessing, map[string]interface{}{
-		"action":  "install",
-		"service": item.ServiceKey,
-		"label":   item.Label,
+		"action":     "install",
+		"service":    item.ServiceKey,
+		"label":      item.Label,
+		"cleanOutput": true, // Flag for clean installation output
 	})
 }
 

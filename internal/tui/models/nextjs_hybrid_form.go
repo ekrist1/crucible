@@ -1,7 +1,9 @@
 package models
 
 import (
-	"crucible/internal/nextjs"
+	"fmt"
+	
+	"crucible/internal/actions"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -118,40 +120,50 @@ func (f *NextJSHybridFormModel) View() string {
 
 // handleSubmit handles form submission
 func (f *NextJSHybridFormModel) handleSubmit(values []string) tea.Cmd {
-	return func() tea.Msg {
-		// Extract values by position
-		siteName := values[0]
-		domain := values[1]
-		installMethod := values[2]
-		gitRepo := values[3]
-		branch := values[4]
+	// Extract values by position
+	siteName := values[0]
+	domain := values[1]
+	installMethod := values[2]
+	gitRepo := values[3]
+	branch := values[4]
 
-		// Set defaults
-		if branch == "" {
-			branch = "main"
-		}
+	// Set defaults
+	if branch == "" {
+		branch = "main"
+	}
 
-		// Create the NextJS site using the nextjs manager
-		site := &nextjs.Site{
-			Name:   siteName,
-			Domain: domain,
-			Branch: branch,
-		}
+	// Create the NextJS site using the actions package
+	config := actions.NextJSSiteConfig{
+		SiteName: siteName,
+		Domain:   domain,
+	}
 
-		// Check installation method
-		if installMethod == "git" && gitRepo != "" {
-			site.Repository = gitRepo
-		}
+	// Check installation method
+	if installMethod == "git" && gitRepo != "" {
+		config.GitRepo = gitRepo
+		config.Branch = branch
+	}
 
-		// Create NextJS site using the manager
-		manager := nextjs.NewNextJSManager()
-		err := manager.CreateSite(site)
-
-		return nextjsSiteCreatedMsg{
-			name: siteName,
-			err:  err,
+	// Generate commands for site creation
+	commands, descriptions := actions.CreateNextJSSite(config)
+	if len(commands) == 0 {
+		return func() tea.Msg {
+			return nextjsSiteCreatedMsg{
+				name: siteName,
+				err:  fmt.Errorf("no commands generated for site creation"),
+			}
 		}
 	}
+
+	// Navigate to processing state to execute NextJS site creation
+	return f.NavigateTo(StateProcessing, map[string]interface{}{
+		"action":       "nextjs-create",
+		"commands":     commands,
+		"descriptions": descriptions,
+		"serviceName":  "nextjs-" + siteName,
+		"siteName":     siteName,
+		"domain":       domain,
+	})
 }
 
 // handleCancel handles form cancellation
